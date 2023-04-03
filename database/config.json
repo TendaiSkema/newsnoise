@@ -1,0 +1,44 @@
+{
+    "DB_NAME": "articles.db",
+    "TABLES":{
+      "Blick":"blick_articles",
+      "20min":"twentymin_articles",
+      "Tagesanzeiger":"tagi_articles",
+      "dieZeit":"zeit_articles"
+    },
+    "FIELDS":
+    [
+        {
+            "name":"scrape_date",
+            "type": "text"
+        }, 
+        {
+            "name":"publication_date",
+            "type": "text"
+        }, 
+        {
+            "name":"category",
+            "type": "text"
+        }, 
+        {
+            "name":"title",
+            "type": "text"
+        }, 
+        {
+            "name":"abstract",
+            "type": "text"
+        }, 
+        {
+            "name":"url",
+            "type": "text"
+        }, 
+        {
+            "name":"author",
+            "type": "text"
+        }, 
+        {
+            "name":"text",
+            "type": "text"
+        }
+    ]
+}

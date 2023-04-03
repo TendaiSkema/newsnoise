@@ -1,0 +1,6 @@
+*.pyc
+ChatGPT/
+*.db
+secrets/
+otehr_test.py
+db_explorer.ipynb
