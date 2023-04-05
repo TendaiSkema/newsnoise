@@ -12,8 +12,10 @@ from uuid import uuid4
 from transformers import GPT2TokenizerFast
 tokenizer = GPT2TokenizerFast.from_pretrained('gpt2')
 from PIL import Image
+import concurrent.futures
 
 from moviepy.editor import AudioFileClip, ImageClip, concatenate_videoclips
+from moviepy.editor import VideoFileClip
 import os
 import imgkit
 import random
@@ -107,20 +109,6 @@ def compare(article1, article2, table1, table2):
         },
     }
 
-def print_founc_matches(matches):
-    print(f'Found {len(matches)} matches with {[len(match["articles"]) for match in matches]} articles')
-    # print matches
-    for m, match in enumerate(matches):
-        print("#"*210)
-        print("Match NR."+str(m))
-        print(f'{green}{match["title"]}{reset}')
-        print(f'{red}{match["main_article"]["article"]["url"]}{reset}')
-        print("+"*210)
-        for i, article_json in enumerate(match['articles']):
-            print(f"{yellow}{article_json['newspaper']} | {article_json['article']['title']}{reset}")         
-            print('ratio: {0[0]} | set_ratio: {0[1]} | qratio: {0[2]} | wratio: {0[3]}'.format(article_json['ratios']))
-            print(f"{yellow}"+210*"_"+f"{reset}")
-
 def cross_compare(db: DBManager, summarizer: SummarizManager):
     date_today = (datetime.today()).strftime("%Y-%m-%d")
     date_14days = (datetime.today()-timedelta(days=14)).strftime("%Y-%m-%d")
@@ -192,7 +180,7 @@ def calc_weight(text, nr_articles_in_match=1):
     return weight
 
 def create_input(match, summarizer):
-    print(f"{green}{match['title']}{reset}")
+    #print(f"{green}{match['title']}{reset}")
     request_str = ""
     for article_json in match['articles']:
         article = article_json['article']
@@ -202,9 +190,9 @@ def create_input(match, summarizer):
             article['summary'] = medium_cleanup(article['text'])
         else:
             article['summary'] = summarizer.summarize(article['text'], ratio=weighted_ratio)
-        print(f'w: {weighted_ratio} | rT: {len(tokenizer(article["text"])["input_ids"])} | Art NR.: {len(match["articles"])}')
+        #print(f'w: {weighted_ratio} | rT: {len(tokenizer(article["text"])["input_ids"])} | Art NR.: {len(match["articles"])}')
         request_str += QUELLEN_STRING.format(**article)
-    print(f'token: {len(tokenizer(request_str)["input_ids"])} chars: {len(request_str)}')
+    #print(f'token: {len(tokenizer(request_str)["input_ids"])} chars: {len(request_str)}')
 
     return request_str
 
@@ -267,6 +255,7 @@ def render_html_template(text, image_path=None, template='matches/template.html'
 
 def create_video(image_list, title, base_path, audio_file='audio.mp3', output_file = 'video.mp4'):
     # check if image list is empty
+    info(f"{yellow}Creating video for {title}: {base_path}{reset}")
     if len(image_list) == 0:
         image_list = [{'url': 'https://upload.wikimedia.org/wikipedia/commons/1/14/No_Image_Available.jpg', 'txt': 'No Image Available'}]
     
@@ -274,18 +263,8 @@ def create_video(image_list, title, base_path, audio_file='audio.mp3', output_fi
     clips = []
     for i, image in enumerate(image_list):
         try:
-            url = image['url']
-            if '.jpg' in url:
-                ending = '.jpg'
-            elif '.png' in url:
-                ending = '.png'
-            elif '.jpeg' in url:
-                ending = '.jpeg'
-            else:
-                raise Exception('Image format not supported: ' + url)
-            
             response = requests.get(image['url'])
-            with open(f'temp_image{ending}', 'wb') as temp_file:
+            with open(f'temp_image.png', 'wb') as temp_file:
                 temp_file.write(response.content)
                 img = Image.open(temp_file.name)
                 # resize it to 1080p
@@ -294,7 +273,7 @@ def create_video(image_list, title, base_path, audio_file='audio.mp3', output_fi
                 if i == 0:
                     render_html_template(title, image_path=temp_file.name)
                 clips.append(ImageClip(temp_file.name))
-            os.remove(f'temp_image{ending}')
+            os.remove(f'temp_image.png')
         except Exception as e:
             warn(e)
 
@@ -319,8 +298,8 @@ def create_video(image_list, title, base_path, audio_file='audio.mp3', output_fi
     # create final video
     final_clip = concatenate_videoclips(clips, method='compose')
     final_clip = final_clip.set_audio(audio)
-    final_clip.write_videofile(base_path+output_file, fps=24, threads = 500)
-
+    final_clip.write_videofile(base_path+output_file, fps=24, threads = 5, logger=None)
+    info(f'Video saved to {base_path+output_file}')
     return final_clip
 
 def create_final_video(clips, base_path):
@@ -415,6 +394,50 @@ def create_final_thumbnail(tags, today_path):
 
     return img
 
+def process_match(today_path, match, summarizer, tts):
+    # create folder for match
+    if not os.path.exists(f"{today_path}{match['uid']}"):
+        os.makedirs(f"{today_path}{match['uid']}")
+    with open(f"{today_path}{match['uid']}/match.json", 'w') as f:
+        json.dump(match, f, indent=4)
+
+    # create GPT input file
+    info(f"Creating input for {match['uid']}")
+    request_str = create_input(match, summarizer)
+    # save input file
+    with open(f"{today_path}{match['uid']}/input.txt", 'w', encoding='utf-8') as f:
+        f.write(request_str)
+    
+    # create GPT output file
+    info(f"Creating skript for {match['uid']}")
+    skript, source_name = create_skript(request_str, summarizer)
+    if skript is None:
+        warn(f"{red}Could not create skript for {match['uid']}{reset}")
+        return
+    
+    with open(f'{today_path}{match["uid"]}/skript_{source_name}.txt', 'w', encoding='utf-8') as f:
+        f.write(skript)
+    
+    title = skript.split('\n')[0]
+
+    # get tags
+    info(f"Getting tags for {match['uid']}")
+    tags = summarizer.get_tags_for_skript(skript)
+    with open(f'{today_path}{match["uid"]}/tags.json', 'w', encoding='utf-8') as f:
+        json.dump(tags, f, indent=4)
+
+    # create audio file
+    info(f"Creating audio for {match['uid']}")
+    tts.syntisize(skript, f'{today_path}{match["uid"]}/audio.mp3')
+    sleep(10)
+
+    info(f"Creating thumbnail for {match['uid']}")
+    create_thumbnail(match['images'], tags, f'{today_path}{match["uid"]}/')
+
+    create_video(match['images'], title, f'{today_path}{match["uid"]}/')
+
+    info(f"{green}Finished {match['uid']}: title: {title}{reset}")
+
 def CreateVideo(tts: TTSManager, summarizer: SummarizManager, db: DBManager):
     # create folder for today
     today = datetime.now().strftime('%Y-%m-%dT%H')
@@ -435,56 +458,30 @@ def CreateVideo(tts: TTSManager, summarizer: SummarizManager, db: DBManager):
     }
 
     warn(f"Found {len(matches)} matches")
-    videos = []
-    for match in matches:
-        # create folder for match
-        if not os.path.exists(f"{today_path}{match['uid']}"):
-            os.makedirs(f"{today_path}{match['uid']}")
-        with open(f"{today_path}{match['uid']}/match.json", 'w') as f:
-            json.dump(match, f, indent=4)
-
-        # create GPT input file
-        info(f"Creating input for {match['uid']}")
-        request_str = create_input(match, summarizer)
-        # save input file
-        with open(f"{today_path}{match['uid']}/input.txt", 'w', encoding='utf-8') as f:
-            f.write(request_str)
-        
-        # create GPT output file
-        info(f"Creating skript for {match['uid']}")
-        skript, source_name = create_skript(request_str, summarizer)
-        if skript is None:
-            continue
-        
-        with open(f'{today_path}{match["uid"]}/skript_{source_name}.txt', 'w', encoding='utf-8') as f:
-            f.write(skript)
-        
-        # get tags
-        info(f"Getting tags for {match['uid']}")
-        with open(f'{today_path}{match["uid"]}/tags.json', 'w', encoding='utf-8') as f:
-            json.dump(summarizer.get_tags_for_skript(skript), f, indent=4)
-
-        # create audio file
-        info(f"Creating audio for {match['uid']}")
-        tts.syntisize(skript, f'{today_path}{match["uid"]}/audio.mp3')
-        sleep(10)
-
-        info(f"Creating thumbnail for {match['uid']}")
-        create_thumbnail(match['images'], tags, f'{today_path}{match["uid"]}/')
-
-        videos.append(create_video(match['images'], match["title"], f'{today_path}{match["uid"]}/'))
-
-        for article in match['articles']:
-            discription_links_dict[article['newspaper']] += f'\t\t{article["article"]["url"]}\n'
+    # Parallel process matches using multithreading
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        # Pass the required arguments to the process_match function
+        executor.map(lambda match: process_match(today_path, match, summarizer, tts), matches)
 
     # remove duplicates
     tags = []
+    videos = []
+
     for match in os.listdir(today_path):
+        # load tags
         with open(f'{today_path}{match}/tags.json') as f:
             tags_match = json.load(f)
             for tag in tags_match:
                 if tag not in tags:
                     tags.append(tag)
+
+        # load videos
+        videos.append(VideoFileClip(f'{today_path}{match}/video.mp4'))
+        # load discription links
+        with open(f'{today_path}{match}/match.json') as f:
+            match_data = json.load(f)
+            for article in match_data['articles']:
+                discription_links_dict[article['newspaper']] += f'\t\t{article["article"]["url"]}\n'
 
     # create final video
     info("Creating final video")
@@ -498,8 +495,6 @@ def CreateVideo(tts: TTSManager, summarizer: SummarizManager, db: DBManager):
     return today_path, tags, decription
 
 
-if __name__ == '__main__':
-    CreateVideo()
 
     
 

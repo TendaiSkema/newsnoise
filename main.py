@@ -14,6 +14,7 @@ from matches.matchManager import CreateVideo
 
 import multiprocessing as mp
 from multiprocessing import Manager
+from time import sleep
 
 BLICK_NAME = 'Blick'
 TWENTYMIN_NAME = '20min'
@@ -27,9 +28,12 @@ def scrape_process(queue, name, f):
     try:
         res = f(db)  # Pass the db instance to the scraper function
         info(f'{green}Scraped {len(res)} articles from {name}{reset}')
+        info(f'{blue}Put into queue: {name} with {len(res)}{reset}')
         queue.put((name, res))
+        return
     except Exception as e:
         error(f'{orange}Error scraping {name}: {e}{reset}')
+        return
 
 
 if __name__ == '__main__':
@@ -49,22 +53,34 @@ if __name__ == '__main__':
 
     queue = mp.Queue()
     # Make subprocesses with the shared_db instead of db
-    twentymin_proc = mp.Process(target=scrape_process, args=(queue, TWENTYMIN_NAME, scrape_20min))
-    blick_proc = mp.Process(target=scrape_process, args=(queue, BLICK_NAME, scrape_blick))
-    tagi_proc = mp.Process(target=scrape_process, args=(queue, TAGI_NAME, scrape_taggi))
-    zeit_proc = mp.Process(target=scrape_process, args=(queue, ZEIT_NAME, scrape_zeit))
+    scrapers = [
+        mp.Process(target=scrape_process, args=(queue, TWENTYMIN_NAME, scrape_20min)),
+        mp.Process(target=scrape_process, args=(queue, BLICK_NAME, scrape_blick)),
+        mp.Process(target=scrape_process, args=(queue, TAGI_NAME, scrape_taggi)),
+        mp.Process(target=scrape_process, args=(queue, ZEIT_NAME, scrape_zeit)),
+    ]
 
     # start subprocesses
-    for proc in [twentymin_proc, blick_proc, tagi_proc, zeit_proc]:
+    print('starting subprocesses...')
+    for proc in scrapers:
         proc.start()
-    # wait for subprocesses to finish
-    for proc in [twentymin_proc, blick_proc, tagi_proc, zeit_proc]:
-        proc.join()
+
+    while queue.qsize() < len(scrapers):
+        sleep(1)
     
     # get results from queue
+    print('getting results from queue...')
     while not queue.empty():
         key, value = queue.get()
         scrape_res_dict[key] = value
+
+    # wait for subprocesses to finish
+    print('waiting for subprocesses to finish...')
+    for proc in scrapers:
+        proc.join(timeout=10)
+        if proc.is_alive():
+            warn(f'{orange}Process {proc.name} is still alive!{reset}')
+            proc.terminate()
 
     # check if all scrapers returned results
     for key, value in scrape_res_dict.items():
@@ -82,15 +98,17 @@ if __name__ == '__main__':
     if sum(len(df) for df in [twentymin_df, blick_df, tagi_df, zeit_df]) < 10:
         warn(f'{orange}No articles found for today!{reset}')
         exit(1)
-        
-    """ result_path, tags, description = CreateVideo(tts, summarizer, db)
+    """ 
+    result_path, tags, description = CreateVideo(tts, summarizer, db)
     info(f'{green}Video created at {result_path}{reset}')
 
     # get tags and title
     date = datetime.now().strftime("%d.%m.%Y")
     title = TITEL_TEMPLATE.format(date)
     info('final video path: {}, final thumpnail path: {}'.format(result_path+"final.mp4", result_path+"final_thumbnail.png"))
-    video_id = uploadManager.upload(result_path+"final.mp4", title, description, ['News', 'Schweiz', 'Deutschland', 'ChatGPT'], 25)
+    if len(tags) > 10:
+        tags = tags[:10]
+    video_id = uploadManager.upload(result_path+"final.mp4", title, description, ['News', 'Schweiz', 'Deutschland', 'ChatGPT']+tags, 25)
     video_id = uploadManager.set_thumbnail(result_path+"final_thumbnail.png", video_id) """
 
 
