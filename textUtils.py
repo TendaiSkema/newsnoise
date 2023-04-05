@@ -97,8 +97,9 @@ class TTSManager:
         self.voices = [
             'de-AT-JonasNeural',
             'de-DE-RalfNeural',
-            #"de-CH-LeniNeural",
+            "de-CH-LeniNeural",
             "de-AT-IngridNeural",
+            "de-DE-ElkeNeural"
         ]
 
     def syntisize(self, text, path):
@@ -134,6 +135,7 @@ class UploadManager:
                 'madeForKids': False
             }
         }
+        
         if os.path.exists(video_path):
             insert_request = self.youtube.videos().insert(
                 part=",".join(request_body.keys()),
@@ -187,7 +189,7 @@ class SummarizManager:
 
     def get_tags_for_skript(self, text: str, retries: int = 5)->list:
         sys_template = """
-            Erstelle eine Tag liste im format:
+            Erstelle eine Tag liste mit maximal 3 Tags im format:
             tag1,tag2,tag3,
 
             für das folgende Transkript eines Youtube Videos:
@@ -210,6 +212,24 @@ class SummarizManager:
         
         return []
 
+    def get_thumbnail_description(self, text: str, retries: int = 5)->str:
+        sys_template = """Erstelle eine Beschreibung für das folgende Transkript eines Youtube Videos mit den Themen:\n"""
+        for _ in range(retries): 
+            try:
+                # Note: you need to be using OpenAI Python v0.27.0 for the code below to work
+                response = openai.ChatCompletion.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                            {"role": "system", "content": """Du bist ein helfender Assistent."""},
+                            {"role": "user", "content": sys_template+text}
+                        ]
+                    )
+                return response['choices'][0]['message']['content']
+            except Exception as e:
+                print(e)
+            sleep(5)
+        
+        return None
 
 def remove_special_chars(text: str) -> str:
     return ''.join([char for char in text if char in ALLOWED_CHARS])
