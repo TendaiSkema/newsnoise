@@ -9,8 +9,10 @@ import googleapiclient.discovery
 import googleapiclient.errors
 import os
 import openai
+import azure.cognitiveservices.speech as speechsdk
 from time import time, sleep
-from secrets.secrets import AZURE_KEY, AZURE_URL, OPENAI_KEY, GOOGLE_APPLICATION_CREDENTIALS
+from random import choice
+from secrets.secrets import AZURE_KEY, AZURE_REGION, OPENAI_KEY, GOOGLE_APPLICATION_CREDENTIALS
 
 openai.api_key = OPENAI_KEY
 os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = GOOGLE_APPLICATION_CREDENTIALS
@@ -59,7 +61,7 @@ UNNECESSARY_WORDS = [
 
 GPT_PRIMER = """
 Schreibe ein Transkript für eine Potcast, dass von einem TTS gesprochen wird, aus den Quellen welche ich dir geben werde.
-Mindestens 100 Wörter.
+Mindestens 100 Wörter plus a title.
 
 jede Quelle besteht aus:
 TITEL: Überschrift des Artikels
@@ -81,41 +83,39 @@ DATE: 2023-01-14
 ZUSAMMENFASSUNG: News2Noise hat die News Szene revolutioniert. Jeder hört nun den Potcast.
 
 Transkript (output):
-#News2Noise Erfolgs Schlager
-Wie der Tagesanzeiger vor 2 Wochen berichtete hat News2Noise eine neue form der News Generierung getestet. Nun berichtet 20min das dieses Konzept ein Erfolgs Schlager ist.
+News2Noise Erfolgs Schlager
+
+Wie der Tagesanzeiger vor 2 Wochen berichtete hat News2Noise eine neue form der News Generierung getestet. 
+Nun berichtet 20min das dieses Konzept ein Erfolgs Schlager ist.
 
 Antworte mit ACK wenn du verstehst.
 """
 
 class TTSManager:
     def __init__(self) -> None:
-        self.client = texttospeech.TextToSpeechClient()
-        self.voice = texttospeech.VoiceSelectionParams(
-            language_code="de-CH", 
-            name="de-DE-Wavenet-F"
-        )
-        self.audio_config = texttospeech.AudioConfig(
-            audio_encoding=texttospeech.AudioEncoding.MP3,
-            speaking_rate=1.1
-        )
+        self.speech_config = speechsdk.SpeechConfig(subscription=AZURE_KEY, region=AZURE_REGION)
+        self.voices = [
+            'de-AT-JonasNeural',
+            'de-DE-RalfNeural',
+            #"de-CH-LeniNeural",
+            "de-AT-IngridNeural",
+        ]
 
     def syntisize(self, text, path):
-        # Set the text input to be synthesized
-        synthesis_input = texttospeech.SynthesisInput(text=text)
-        response = self.client.synthesize_speech(
-            input=synthesis_input, voice=self.voice, audio_config=self.audio_config
-        )
-
-        with open(path, "wb") as out:
-            # Write the response to the output file.
-            out.write(response.audio_content)
+        self.speech_config.speech_synthesis_voice_name = choice(self.voices)
+        audio_config = speechsdk.audio.AudioOutputConfig(filename=path)
+        speech_synthesizer = speechsdk.SpeechSynthesizer(speech_config=self.speech_config, audio_config=audio_config)
+        speech_synthesis_result = speech_synthesizer.speak_text_async(text).get()
+        if speech_synthesis_result.reason != speechsdk.ResultReason.SynthesizingAudioCompleted:
+            print(f"Speech synthesis Failed: {speech_synthesis_result.reason} .")
+            return
 
 class UploadManager:
     def __init__(self) -> None:
         # Set up the YouTube API client
         scopes = ["https://www.googleapis.com/auth/youtube.upload"]
         flow = google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file(
-            "client_secret_676651930909-75fbsv918hglgedf7776vua3v5rq1ldr.apps.googleusercontent.com.json", scopes)
+            "secrets/client_secret_676651930909-75fbsv918hglgedf7776vua3v5rq1ldr.apps.googleusercontent.com.json", scopes)
         self.credentials = flow.run_console()
         self.youtube = googleapiclient.discovery.build("youtube", "v3", credentials=self.credentials)
 
@@ -144,7 +144,19 @@ class UploadManager:
             print(f"Video uploaded successfully. Video ID: {response['id']}")
         else:
             print(f"Video file not found: {video_path}")
-        
+
+        return response['id']
+
+    def set_thumbnail(self, video_id, thumbnail_path):
+        if os.path.exists(thumbnail_path):
+            request = self.youtube.thumbnails().set(
+                videoId=video_id,
+                media_body=googleapiclient.http.MediaFileUpload(thumbnail_path)
+            )
+            response = request.execute()
+            print(f"Thumbnail uploaded successfully. Video ID: {response['id']}")
+        else:
+            print(f"Thumbnail file not found: {thumbnail_path}")    
 
 class SummarizManager:
     def __init__(self) -> None:
