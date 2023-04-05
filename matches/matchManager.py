@@ -1,5 +1,5 @@
 import json
-from logUtils import warn, green, reset, red, yellow
+from logUtils import warn, green, reset, red, yellow, info
 from tqdm import tqdm
 from datetime import datetime, timedelta
 from textUtils import *
@@ -16,6 +16,7 @@ from PIL import Image
 from moviepy.editor import AudioFileClip, ImageClip, concatenate_videoclips
 import os
 import imgkit
+import random
 
 from textUtils import GPT_PRIMER
 
@@ -25,6 +26,20 @@ ZEITUNG: {newspaper}
 DATE: {publication_date}
 ZUSAMMENFASSUNG: {summary}
 '''
+
+DESCRIPTION = """Dieses Video wurde automatisch erstellt.
+Die Korrektheit der Inhalte kann nicht garantiert werden.
+
+Die Inhalte wurden von den folgenden News-Seiten gesammelt:
+- 20min.ch
+{20min}
+- Blick.ch
+{Blick}
+- Tagesanzeiger.ch
+{Tagesanzeiger}
+- Zeit.de
+{dieZeit}
+"""
 
 DB_NAME = 'articles.db'
 BLICK_NAME = 'Blick'
@@ -208,7 +223,6 @@ def create_skript(request_str, summarizer, max_retries=5):
             continue
         else:
             print(f'{green}skript found{reset}: {len(tokenizer(skript)["input_ids"])}')
-            print(f'{green}{len(tokenizer(skript)["input_ids"])}{reset}')
             return skript, source_name
     
     return None, None
@@ -305,7 +319,7 @@ def create_video(image_list, title, base_path, audio_file='audio.mp3', output_fi
     # create final video
     final_clip = concatenate_videoclips(clips, method='compose')
     final_clip = final_clip.set_audio(audio)
-    final_clip.write_videofile(base_path+output_file, fps=24)
+    final_clip.write_videofile(base_path+output_file, fps=24, threads = 500)
 
     return final_clip
 
@@ -313,11 +327,93 @@ def create_final_video(clips, base_path):
     # TODO: load intro and outro
 
     final_clip = concatenate_videoclips(clips, method='compose')
-    final_clip.write_videofile(base_path+'final.mp4', fps=24)
+    final_clip.write_videofile(base_path+'final.mp4', fps=24, threads = 1000)
 
     return final_clip
 
+def create_thumbnail(images, tags, today_path):
+    base_image = Image.open('matches/thumbnail.png')
+    base_image = base_image.convert('RGBA')
 
+    if images == []:
+        base_image.save(today_path+'thumbnail.png')
+        return base_image
+
+    random_front = random.choice(images)
+
+    # download image
+    found = False
+    for i in range(100):
+        try:
+            response = requests.get(random_front['url'])
+            found = True
+        except:
+            random_front = random.choice(images)
+        
+        if found:
+            break
+    
+    if not found:
+        random_front = {'url': 'https://upload.wikimedia.org/wikipedia/commons/1/14/No_Image_Available.jpg', 'txt': 'No Image Available'}
+        response = requests.get(random_front['url'])
+
+    with open('temp_image.png', 'wb') as temp_file:
+        temp_file.write(response.content)
+        img = Image.open(temp_file.name)
+
+    # remove temp file
+    try:
+        os.remove('temp_image.png')
+    except:
+        warn('Could not remove temp file!!')
+    
+    img = img.resize(base_image.size)
+    img = img.convert('RGBA')
+
+    # create thumbnail
+    img.paste(base_image, (0, 0), base_image)
+    img.save(today_path+'thumbnail.png')
+
+    return img
+
+def create_final_thumbnail(tags, today_path):
+    base_image = Image.open('matches/thumbnail.png')
+    base_image = base_image.convert('RGBA')
+
+    # load all natches from today and get all image links
+    images = []
+    for match in os.listdir(today_path):
+        if os.path.isdir(today_path+match):
+            with open(today_path+match+'/match.json') as f:
+                data = json.load(f)
+                images += [img_dic['url'] for img_dic in data['images']]
+
+    if images == []:
+        # save base image as thumbnail
+        base_image.save(today_path+'final_thumbnail.png')
+        return base_image
+    # get random image
+    random_front = random.choice(images)
+    # download image
+    response = requests.get(random_front)
+    with open('temp_image.jpg', 'wb') as temp_file:
+        temp_file.write(response.content)
+        img = Image.open(temp_file.name)
+
+    # remove temp file
+    try:
+        os.remove('temp_image.jpg')
+    except:
+        warn('Could not remove temp file!!')
+    
+    img = img.resize(base_image.size)
+    img = img.convert('RGBA')
+
+    # create thumbnail
+    img.paste(base_image, (0, 0), base_image)
+    img.save(today_path+'final_thumbnail.png')
+
+    return img
 
 def CreateVideo(tts: TTSManager, summarizer: SummarizManager, db: DBManager):
     # create folder for today
@@ -327,7 +423,16 @@ def CreateVideo(tts: TTSManager, summarizer: SummarizManager, db: DBManager):
 
     today_path = "ChatGPT/"+today+"/"
 
+    # get matches
     matches = cross_compare(db, summarizer)
+
+    # create dict for description links
+    discription_links_dict = {
+        "20min": "",
+        "dieZeit": "",
+        "Blick": "",
+        "Tagesanzeiger": "",
+    }
 
     warn(f"Found {len(matches)} matches")
     videos = []
@@ -339,32 +444,58 @@ def CreateVideo(tts: TTSManager, summarizer: SummarizManager, db: DBManager):
             json.dump(match, f, indent=4)
 
         # create GPT input file
+        info(f"Creating input for {match['uid']}")
         request_str = create_input(match, summarizer)
         # save input file
         with open(f"{today_path}{match['uid']}/input.txt", 'w', encoding='utf-8') as f:
             f.write(request_str)
         
         # create GPT output file
+        info(f"Creating skript for {match['uid']}")
         skript, source_name = create_skript(request_str, summarizer)
         if skript is None:
             continue
-
-        # add title to skript
-        skript = f'{match["title"]}\n\n{skript}'
-
+        
         with open(f'{today_path}{match["uid"]}/skript_{source_name}.txt', 'w', encoding='utf-8') as f:
             f.write(skript)
         
-        tags = summarizer.get_tags_for_skript(skript)
+        # get tags
+        info(f"Getting tags for {match['uid']}")
+        with open(f'{today_path}{match["uid"]}/tags.json', 'w', encoding='utf-8') as f:
+            json.dump(summarizer.get_tags_for_skript(skript), f, indent=4)
 
+        # create audio file
+        info(f"Creating audio for {match['uid']}")
         tts.syntisize(skript, f'{today_path}{match["uid"]}/audio.mp3')
         sleep(10)
 
+        info(f"Creating thumbnail for {match['uid']}")
+        create_thumbnail(match['images'], tags, f'{today_path}{match["uid"]}/')
+
         videos.append(create_video(match['images'], match["title"], f'{today_path}{match["uid"]}/'))
 
-    create_final_video(videos, f'{today_path}')
+        for article in match['articles']:
+            discription_links_dict[article['newspaper']] += f'\t\t{article["article"]["url"]}\n'
 
-    return today_path, tags
+    # remove duplicates
+    tags = []
+    for match in os.listdir(today_path):
+        with open(f'{today_path}{match}/tags.json') as f:
+            tags_match = json.load(f)
+            for tag in tags_match:
+                if tag not in tags:
+                    tags.append(tag)
+
+    # create final video
+    info("Creating final video")
+    create_final_video(videos, f'{today_path}')
+    # create final thumbnail
+    info("Creating final thumbnail")
+    create_final_thumbnail(tags, f'{today_path}')
+
+    decription = DESCRIPTION#.format(**discription_links_dict)
+
+    return today_path, tags, decription
 
 
 if __name__ == '__main__':
