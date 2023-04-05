@@ -192,7 +192,6 @@ def scrape_blick(db)-> list:
                 if md is None:
                     continue
                 articles_json.append(md)
-                print(f"{orange}Articles Scraped {len(articles_json)}{reset}", end='\r')
 
             except Exception as e:
                 error(f'Error scraping {url}: {e}')

@@ -138,7 +138,6 @@ def scrape_zeit(db : DBManager):
                 md = scrape_article(url, category)
 
                 articles_json.append(md)
-                print(f"{orange}Articles Scraped {len(articles_json)}{reset}", end='\r')
 
             except Exception as e:
                 error(f'Error scraping {url}: {e}')

@@ -187,7 +187,6 @@ def scrape_20min(db):
             if article_md is None:
                 continue
             articles_json.append(article_md)
-            print(f"{orange}Articles Scraped {len(articles_json)}{reset}", end='\r')
 
     return articles_json
           
