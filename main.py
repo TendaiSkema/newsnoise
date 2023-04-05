@@ -12,24 +12,25 @@ from textUtils import SummarizManager, TTSManager, UploadManager
 from database.DB_manager import DBManager
 from matches.matchManager import CreateVideo
 
+import multiprocessing as mp
+from multiprocessing import Manager
+
 BLICK_NAME = 'Blick'
 TWENTYMIN_NAME = '20min'
 TAGI_NAME = 'Tagesanzeiger'
 ZEIT_NAME = 'dieZeit'
 
-DESCRIPTION = """Dieses Video wurde automatisch erstellt.
-Die Korrektheit der Inhalte kann nicht garantiert werden.
-
-Die Inhalte wurden von den folgenden News-Seiten gesammelt:
-- 20min.ch
-- blick.ch
-- tagi.ch
-- zeit.de
-
-Mittels einer KI wurde eine Zusammenfassung/Video erstellt.
-"""
-
 TITEL_TEMPLATE = "News Noise CH - {}"
+
+def scrape_process(queue, name, f):
+    db = DBManager()  # Create a new DBManager instance for each process
+    try:
+        res = f(db)  # Pass the db instance to the scraper function
+        info(f'{green}Scraped {len(res)} articles from {name}{reset}')
+        queue.put((name, res))
+    except Exception as e:
+        error(f'{orange}Error scraping {name}: {e}{reset}')
+
 
 if __name__ == '__main__':
     uploadManager = UploadManager()
@@ -37,21 +38,40 @@ if __name__ == '__main__':
     tts = TTSManager()
     db = DBManager()
     db.create_update_tables()
+
+    # create scrape result dictionary
+    scrape_res_dict = {
+        TWENTYMIN_NAME: None,
+        BLICK_NAME: None,
+        TAGI_NAME: None,
+        ZEIT_NAME: None
+    }
+
+    queue = mp.Queue()
+    # Make subprocesses with the shared_db instead of db
+    twentymin_proc = mp.Process(target=scrape_process, args=(queue, TWENTYMIN_NAME, scrape_20min))
+    blick_proc = mp.Process(target=scrape_process, args=(queue, BLICK_NAME, scrape_blick))
+    tagi_proc = mp.Process(target=scrape_process, args=(queue, TAGI_NAME, scrape_taggi))
+    zeit_proc = mp.Process(target=scrape_process, args=(queue, ZEIT_NAME, scrape_zeit))
+
+    # start subprocesses
+    for proc in [twentymin_proc, blick_proc, tagi_proc, zeit_proc]:
+        proc.start()
+    # wait for subprocesses to finish
+    for proc in [twentymin_proc, blick_proc, tagi_proc, zeit_proc]:
+        proc.join()
     
-    twenty_articles = scrape_20min(db)
-    info(f'{green}Scraped {len(twenty_articles)} articles from 20min.ch{reset}')
-    blick_articles = scrape_blick(db)
-    info(f'{green}Scraped {len(blick_articles)} articles from blick.ch{reset}')
-    tagi_articles = scrape_taggi(db)
-    info(f'{green}Scraped {len(tagi_articles)} articles from tagi.ch{reset}')
-    zeit_articles = scrape_zeit(db)
-    info(f'{green}Scraped {len(zeit_articles)} articles from zeit.ch{reset}')
+    # get results from queue
+    while not queue.empty():
+        key, value = queue.get()
+        scrape_res_dict[key] = value
 
-    db.insert_many(twenty_articles, TWENTYMIN_NAME)
-    db.insert_many(blick_articles, BLICK_NAME)
-    db.insert_many(tagi_articles, TAGI_NAME)
-    db.insert_many(zeit_articles, ZEIT_NAME)
-
+    # check if all scrapers returned results
+    for key, value in scrape_res_dict.items():
+        if value is None:
+            error(f'{orange}Not all scrapers returned results!{reset}')
+            continue
+        db.insert_many(value, key)
 
     twentymin_df = db.get_by_publish_date(TWENTYMIN_NAME, datetime.now().strftime("%Y-%m-%d"))
     blick_df = db.get_by_publish_date(BLICK_NAME, datetime.now().strftime("%Y-%m-%d"))
@@ -59,11 +79,19 @@ if __name__ == '__main__':
     zeit_df = db.get_by_publish_date(ZEIT_NAME, datetime.now().strftime("%Y-%m-%d"))
 
     print(f'{yellow}Articles from Today: "20min": {len(twentymin_df)}, "blick": {len(blick_df)}, "tagi": {len(tagi_df)}, "zeit": {len(zeit_df)}{reset}')
-
-    result_path, tags = CreateVideo(tts, summarizer, db)
+    if sum(len(df) for df in [twentymin_df, blick_df, tagi_df, zeit_df]) < 10:
+        warn(f'{orange}No articles found for today!{reset}')
+        exit(1)
+        
+    """ result_path, tags, description = CreateVideo(tts, summarizer, db)
     info(f'{green}Video created at {result_path}{reset}')
+
     # get tags and title
     date = datetime.now().strftime("%d.%m.%Y")
     title = TITEL_TEMPLATE.format(date)
-    uploadManager.upload(result_path+"final.mp4", title, DESCRIPTION, ['News', 'Schweiz', 'Deutschland', 'ChatGPT']+tags, 25)
+    info('final video path: {}, final thumpnail path: {}'.format(result_path+"final.mp4", result_path+"final_thumbnail.png"))
+    video_id = uploadManager.upload(result_path+"final.mp4", title, description, ['News', 'Schweiz', 'Deutschland', 'ChatGPT'], 25)
+    video_id = uploadManager.set_thumbnail(result_path+"final_thumbnail.png", video_id) """
+
+
 
