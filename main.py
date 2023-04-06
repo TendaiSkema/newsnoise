@@ -126,10 +126,12 @@ if __name__ == '__main__':
         # Pass the required arguments to the process_match function
         executor.map(lambda match: vm.process_match(today_path, match, summarizer, tts), matches)
 
+    executor.shutdown(wait=True)
+    info(f'{green}Finished processing matches videos{reset}')
     # remove duplicates
     tags = []
     videos = []
-
+    info(f'{green}Create videos for matches{reset}')
     for match in os.listdir(today_path):
         # load videos
         try:

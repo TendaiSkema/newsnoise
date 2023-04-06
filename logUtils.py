@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.INFO)
 
 logger = logging.getLogger(__name__)
 
-LOG_ERRORS = False
+LOG_ERRORS = True
 
 def info(message):
     logger.info(f"{grey}{message}{reset}")
