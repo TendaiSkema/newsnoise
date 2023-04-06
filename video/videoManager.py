@@ -178,17 +178,12 @@ def create_video(image_list, title, base_path, audio_file='audio.mp3', output_fi
     for i,_ in enumerate(clips):
         clips[i] = clips[i].set_duration(duration_per_image)
 
-    while locked:
-        pass
-    
-    locked = True
     # create final video
     info(f"{blue}Creating video for {title}: {base_path}{reset} | t: {audio.duration}")
     final_clip = concatenate_videoclips(clips, method='compose')
     final_clip = final_clip.set_audio(audio)
     final_clip.write_videofile(base_path+output_file, fps=24, threads = 5, logger=None)
     info(f'Video saved to {base_path+output_file}')
-    locked = False
     return final_clip
 
 def create_final_video(clips, base_path):
@@ -272,8 +267,19 @@ def create_final_thumbnail(tags, today_path):
         return base_image
     # get random image
     random_front = random.choice(images)
+    response = None
     # download image
-    response = requests.get(random_front)
+    for _ in range(len(images)):
+        try:
+            response = requests.get(random_front)
+        except:
+            random_front = random.choice(images)
+
+    if response == None:
+        # save base image as thumbnail
+        base_image.save(today_path+'final_thumbnail.png')
+        return base_image
+
     temp_image_id = random.randint(0, 100000)
     with open(f'temp/temp_image{temp_image_id}.jpg', 'wb') as temp_file:
         temp_file.write(response.content)
