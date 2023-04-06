@@ -178,6 +178,9 @@ def scrape_blick(db)-> list:
 
         main = soup.find('main')
         all_links = [ a['href'] for a in main.find_all('a')]
+        # remove duplicates
+        all_links = list(dict.fromkeys(all_links))
+        
         for link in all_links:
             try:
                 url = f'{START_URL}{link}'

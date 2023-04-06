@@ -150,15 +150,15 @@ class UploadManager:
         return response['id']
 
     def set_thumbnail(self, video_id, thumbnail_path):
-        if os.path.exists(thumbnail_path):
+        try:
             request = self.youtube.thumbnails().set(
                 videoId=video_id,
                 media_body=googleapiclient.http.MediaFileUpload(thumbnail_path)
             )
             response = request.execute()
             print(f"Thumbnail uploaded successfully. Video ID: {response['id']}")
-        else:
-            print(f"Thumbnail file not found: {thumbnail_path}")    
+        except:
+            print(f"Thumbnail file not found: {thumbnail_path}")
 
 class SummarizManager:
     def __init__(self) -> None:

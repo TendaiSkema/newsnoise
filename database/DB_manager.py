@@ -75,7 +75,8 @@ class DBManager:
             if self.insert(article_json, newspaper_name):
                 print(f'{green}Inserted{reset} {article_json["url"]}')
             else:
-                print(f'{yellow}Rejected{reset} {article_json["url"]}')
+                #print(f'{yellow}Rejected{reset} {article_json["url"]}')
+                pass
 
     @__checkIfConnected
     def get_by_publish_date(self, newspaper_name:str, publication_date:str)->pd.DataFrame:

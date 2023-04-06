@@ -1,19 +1,19 @@
-from os import listdir
 import json
-from logUtils import warn, info, error, green, blue, orange, reset, grey,yellow
-from sqlite3 import connect
+from logUtils import warn, info, error, green, blue, orange, reset,yellow
 from scrapers.twentymin_scraper import scrape_20min
 from scrapers.blick_scraper import scrape_blick
 from scrapers.taggi_scraper import scrape_taggi
 from scrapers.zeit_scraper import scrape_zeit
 from datetime import datetime
-import pandas as pd
+import os
 from textUtils import SummarizManager, TTSManager, UploadManager
 from database.DB_manager import DBManager
-from matches.matchManager import CreateVideo
+import matches.matchManager as mm
+import video.videoManager as vm
+from moviepy.editor import VideoFileClip
+import concurrent.futures
 
 import multiprocessing as mp
-from multiprocessing import Manager
 from time import sleep
 
 BLICK_NAME = 'Blick'
@@ -43,6 +43,7 @@ if __name__ == '__main__':
     db = DBManager()
     db.create_update_tables()
 
+    ############################### scrape ###############################
     # create scrape result dictionary
     scrape_res_dict = {
         TWENTYMIN_NAME: None,
@@ -98,18 +99,81 @@ if __name__ == '__main__':
     if sum(len(df) for df in [twentymin_df, blick_df, tagi_df, zeit_df]) < 10:
         warn(f'{orange}No articles found for today!{reset}')
         exit(1)
-    """ 
-    result_path, tags, description = CreateVideo(tts, summarizer, db)
-    info(f'{green}Video created at {result_path}{reset}')
+    
+    ############################### compare ###############################
+    # create folder for today
+    today = datetime.now().strftime('%Y-%m-%dT%H')
+    if not os.path.exists("ChatGPT/"+today):
+        os.makedirs("ChatGPT/"+today)
 
+    today_path = "ChatGPT/"+today+"/"
+
+    # get matches
+    matches = mm.cross_compare(db, summarizer)
+
+    ########################## Create Videos ############################
+    # create dict for description links
+    discription_links_dict = {
+        "20min": "",
+        "dieZeit": "",
+        "Blick": "",
+        "Tagesanzeiger": "",
+    }
+
+    warn(f"Found {len(matches)} matches")
+    # Parallel process matches using multithreading
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        # Pass the required arguments to the process_match function
+        executor.map(lambda match: vm.process_match(today_path, match, summarizer, tts), matches)
+
+    # remove duplicates
+    tags = []
+    videos = []
+
+    for match in os.listdir(today_path):
+        # load videos
+        try:
+            # load discription links
+            with open(f'{today_path}{match}/match.json') as f:
+                match_data = json.load(f)
+                for article in match_data['articles']:
+                    discription_links_dict[article['newspaper']] += f'\t\t{article["article"]["url"]}\n'
+            
+            info(f'{green}create video for {match}{reset}')
+            videos.append(vm.create_video(match_data['images'], match_data['title'], f'{today_path}{match_data["uid"]}/'))
+            # load tags
+            with open(f'{today_path}{match}/tags.json') as f:
+                tags_match = json.load(f)
+                for tag in tags_match:
+                    if tag not in tags:
+                        tags.append(tag)
+        except Exception as e:
+            error(f'{orange}Error loading video from {match}: {e}{reset}')
+
+    if len(videos) == 0:
+        error(f'{orange}No videos found!{reset}')
+        exit(1)
+
+    # create final video
+    info("Creating final video")
+    vm.create_final_video(videos, f'{today_path}')
+    # create final thumbnail
+    info("Creating final thumbnail")
+    vm.create_final_thumbnail(tags, f'{today_path}')
+
+    decription = vm.DESCRIPTION#.format(**discription_links_dict)
+
+    info(f'{green}Video created at {today_path}{reset}')
+
+    ############################### upload ###############################
     # get tags and title
     date = datetime.now().strftime("%d.%m.%Y")
     title = TITEL_TEMPLATE.format(date)
-    info('final video path: {}, final thumpnail path: {}'.format(result_path+"final.mp4", result_path+"final_thumbnail.png"))
+    info('final video path: {}, final thumpnail path: {}'.format(today_path+"final.mp4", today_path+"final_thumbnail.png"))
     if len(tags) > 10:
         tags = tags[:10]
-    video_id = uploadManager.upload(result_path+"final.mp4", title, description, ['News', 'Schweiz', 'Deutschland', 'ChatGPT']+tags, 25)
-    video_id = uploadManager.set_thumbnail(result_path+"final_thumbnail.png", video_id) """
+    video_id = uploadManager.upload(today_path+"final.mp4", title, decription, ['News', 'Schweiz', 'Deutschland', 'ChatGPT']+tags, 25)
+    video_id = uploadManager.set_thumbnail(today_path+"final_thumbnail.png", video_id)
 
 
 
