@@ -15,6 +15,8 @@ logging.basicConfig(level=logging.INFO)
 
 logger = logging.getLogger(__name__)
 
+LOG_ERRORS = False
+
 def info(message):
     logger.info(f"{grey}{message}{reset}")
 
@@ -22,4 +24,5 @@ def warn(message):
     logger.warning(f"{yellow}{message}{reset}")
 
 def error(message):
-    logger.error(f"{red}{message}{reset}")
+    if LOG_ERRORS:
+        logger.error(f"{red}{message}{reset}")
