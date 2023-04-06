@@ -156,9 +156,11 @@ class UploadManager:
                 media_body=googleapiclient.http.MediaFileUpload(thumbnail_path)
             )
             response = request.execute()
-            print(f"Thumbnail uploaded successfully. Video ID: {response['id']}")
-        except:
-            print(f"Thumbnail file not found: {thumbnail_path}")
+            print(f"Thumbnail uploaded successfully. Response: {response['kind']}")
+            return True
+        except Exception as e:
+            print(f"Thumbnail upload failed. Error: {e}")
+            return False
 
 class SummarizManager:
     def __init__(self) -> None:
