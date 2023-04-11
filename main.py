@@ -161,9 +161,9 @@ if __name__ == '__main__':
     vm.create_final_video(videos, f'{today_path}')
     # create final thumbnail
     info("Creating final thumbnail")
-    vm.create_final_thumbnail(tags, f'{today_path}')
+    vm.create_final_thumbnail(tags, f'{today_path}', "Was Passiert in der Schweiz?!?!")
 
-    decription = vm.DESCRIPTION#.format(**discription_links_dict)
+    decription = vm.DESCRIPTION.format(**discription_links_dict)
 
     info(f'{green}Video created at {today_path}{reset}')
 
@@ -175,7 +175,7 @@ if __name__ == '__main__':
     if len(tags) > 10:
         tags = tags[:10]
     video_id = uploadManager.upload(today_path+"final.mp4", title, decription, ['News', 'Schweiz', 'Deutschland', 'ChatGPT']+tags, 25)
-    video_id = uploadManager.set_thumbnail(today_path+"final_thumbnail.png", video_id)
+    video_id = uploadManager.set_thumbnail(video_id, today_path+"final_thumbnail.png")
 
 
 

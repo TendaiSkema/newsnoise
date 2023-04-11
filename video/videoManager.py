@@ -11,7 +11,7 @@ from time import sleep
 from uuid import uuid4
 from transformers import GPT2TokenizerFast
 tokenizer = GPT2TokenizerFast.from_pretrained('gpt2')
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 from moviepy.editor import AudioFileClip, ImageClip, concatenate_videoclips, VideoFileClip
 
 import os
@@ -186,6 +186,56 @@ def create_video(image_list, title, base_path, audio_file='audio.mp3', output_fi
     info(f'Video saved to {base_path+output_file}')
     return final_clip
 
+def draw_wrapped_text(draw, text, font, fill, rect, line_spacing=5):
+    max_width = rect[2] - rect[0]
+    max_height = rect[3] - rect[1]
+
+    # Find the font size that fits the bounding box
+    while True:
+        # Split the text into words
+        words = text.split()
+
+        # Create an empty list to store lines of text
+        lines = []
+        line = ""
+
+        # Iterate over the words and construct lines
+        for word in words:
+            test_line = line + " " + word
+            test_line_width = draw.textlength(test_line.strip(), font)
+            if test_line_width <= max_width:
+                line = test_line
+            else:
+                lines.append(line.strip())
+                line = word
+
+        # Add the last line to the list
+        if line:
+            lines.append(line.strip())
+
+        # Calculate the total height of the text
+        total_height = sum([draw.textbbox((0, 0), line, font=font)[3] - draw.textbbox((0, 0), line, font=font)[1] for line in lines]) + (len(lines) - 1) * line_spacing
+
+        # Check if the total height fits the bounding box
+        if total_height <= max_height:
+            break
+
+        # Decrease the font size
+        font_size = font.size - 1
+        if font_size <= 0:
+            break
+
+        font = ImageFont.truetype(font.path, font_size)
+
+    # Draw each line of text within the bounding box
+    y = rect[1] - line_spacing  # Adjust the starting y value
+    for line in lines:
+        left, top, right, bottom = draw.textbbox((0, 0), line, font=font)
+        line_height = bottom - top
+        x = rect[0]  # Set the x value to the left bound of the rect
+        draw.text((x, y), line, font=font, fill=fill)
+        y += line_height + line_spacing
+
 def create_final_video(clips, base_path):
     intro = VideoFileClip('video/intro.mp4')
     transition = VideoFileClip('video/transition.mp4')
@@ -249,9 +299,12 @@ def create_thumbnail(images, tags, today_path):
 
     return img
 
-def create_final_thumbnail(tags, today_path):
+def create_final_thumbnail(tags, today_path, title):
     base_image = Image.open('matches/thumbnail.png')
     base_image = base_image.convert('RGBA')
+
+    # Define the bounding box
+    bbox = (50, 100, 1000, 650)
 
     # load all natches from today and get all image links
     images = []
@@ -296,6 +349,12 @@ def create_final_thumbnail(tags, today_path):
 
     # create thumbnail
     img.paste(base_image, (0, 0), base_image)
+
+    # add title
+    draw = ImageDraw.Draw(img)
+    font = ImageFont.truetype('matches/Roboto-Bold.ttf', 500)
+    draw_wrapped_text(draw, title, font, fill=(255, 255, 255, 255), rect=bbox)
+
     img.save(today_path+'final_thumbnail.png')
 
     return img
