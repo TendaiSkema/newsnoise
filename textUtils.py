@@ -19,46 +19,6 @@ os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = GOOGLE_APPLICATION_CREDENTIALS
 
 ALLOWED_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZäöüÄÖÜß .,;:!?-&()[]{}#\""
 
-UNNECESSARY_WORDS = [
-    'der',
-    'die',
-    'das',
-    'den',
-    'dem',
-    'des',
-    'doch',
-    'ein',
-    'eine',
-    'einem',
-    'einen',
-    'eines',
-    'in',
-    'im',
-    'mit',
-    'auf',
-    'von',
-    'zu',
-    'zum',
-    'zur',
-    'zum',
-    'zur',
-    'an',
-    'am',
-    'als',
-    'bei',
-    'für',
-    'über',
-    'unter',
-    'vor',
-    'nach',
-    'durch',
-    'wegen',
-    'ohne',
-    'seit',
-    'bis'
-]
-
-
 GPT_PRIMER = """
 Schreibe ein Transkript für eine Potcast, dass von einem TTS gesprochen wird, aus den Quellen welche ich dir geben werde.
 Mindestens 100 Wörter plus a title.
@@ -90,6 +50,15 @@ Nun berichtet 20min das dieses Konzept ein Erfolgs Schlager ist.
 
 Antworte mit ACK wenn du verstehst.
 """
+
+GPT_SIMILARITY_PRIMER = '''Ich gebe dir einen Haupt-Artikel. darauf folgend gebe ich dir weitere Artikel. Du antwortest nur mit ACK oder NACK.
+Antworte mit ACK wenn der gegebene Artikel über das selbe Thema ist wie der Haupt-Artikel.
+ansonsten NACK.
+Achte darauf das z.B. die selben personen oder ort etc. darin vorkommen.
+
+hier der Haupt-Artikel:
+{text}
+'''
 
 class TTSManager:
     def __init__(self) -> None:
@@ -169,7 +138,20 @@ class SummarizManager:
     def summarize(self, text, ratio=0.33):
         text = medium_cleanup(text)
         return ''.join(self.GPT2_model(text, ratio=ratio))
-    
+
+    def GPT_similarity(self, mainText, text) -> bool:
+        primer = GPT_SIMILARITY_PRIMER.format(text=mainText)
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                    {"role": "user", "content": primer},
+                    {"role": "assistant", "content": "ACK"},
+                    {"role": "user", "content": text}
+                ]
+        )
+        return 'NACK' not in response['choices'][0]['message']['content'] and 'ACK' in response['choices'][0]['message']['content']
+
+
     def get_skript_api(self, text: str, retries: int = 5)->str:
         for _ in range(retries): 
             try:

@@ -20,14 +20,29 @@ import random
 
 from textUtils import GPT_PRIMER
 
+QUELLEN_STRING = '''
+TITEL: {title}
+DATE: {publication_date}
+ZUSAMMENFASSUNG: {summary}
+'''
+
+MIN_RATIO = 0.6
+
 DB_NAME = 'articles.db'
 BLICK_NAME = 'Blick'
 TWENTYMIN_NAME = '20min'
 TAGI_NAME = 'Tagesanzeiger'
 
+def gpt_compare(main_art, art, summarizer: SummarizManager):
+    main_art['summary'] = summarizer.summarize(main_art['text'], 0.5)
+    main_source = QUELLEN_STRING.format(**main_art)
 
+    art['summary'] = summarizer.summarize(art['text'], 0.5)
+    art_summary = QUELLEN_STRING.format(**art)
 
-def compare_with_match(match, article, table: str):
+    return summarizer.GPT_similarity(main_source, art_summary)
+
+def compare_with_match(match, article, table: str, summarizer: SummarizManager):
     art1_txt = medium_cleanup(article['abstract'])
     art2_txt = medium_cleanup(match['main_article']['article']['abstract'])
     # get ratios
@@ -35,9 +50,13 @@ def compare_with_match(match, article, table: str):
     set_ratio = fuzz.token_set_ratio(art1_txt, art2_txt)/100
     qratio = fuzz.QRatio(art1_txt, art2_txt)/100
     wratio = fuzz.WRatio(art1_txt, art2_txt)/100
-    if ratio < 0.6 and set_ratio < 0.6:
+    if ratio < MIN_RATIO and set_ratio < MIN_RATIO:
         return None
     
+    # if fuzzy match ckeck with ChatGPT
+    if not gpt_compare(match['main_article']['article'], article, summarizer):
+        return None
+        
     match['urls'].append(article['url'])
     match['articles'].append({
         'newspaper': table,
@@ -49,7 +68,7 @@ def compare_with_match(match, article, table: str):
     
     return match
     
-def compare(article1, article2, table1, table2):
+def compare(article1, article2, table1, table2, summarizer: SummarizManager):
     art1_txt = medium_cleanup(article1['abstract'])
     art2_txt = medium_cleanup(article2['abstract'])
     # get ratios
@@ -57,7 +76,11 @@ def compare(article1, article2, table1, table2):
     set_ratio = fuzz.token_set_ratio(art1_txt, art2_txt)/100
     qratio = fuzz.QRatio(art1_txt, art2_txt)/100
     wratio = fuzz.WRatio(art1_txt, art2_txt)/100
-    if ratio < 0.6 and set_ratio < 0.6:
+    if ratio < MIN_RATIO and set_ratio < MIN_RATIO:
+        return None
+
+    # if fuzzy match ckeck with ChatGPT
+    if not gpt_compare(article1, article2, summarizer):
         return None
 
     return {
@@ -79,8 +102,9 @@ def compare(article1, article2, table1, table2):
     }
 
 def cross_compare(db: DBManager, summarizer: SummarizManager):
-    date_today = (datetime.today()).strftime("%Y-%m-%d")
-    date_14days = (datetime.today()-timedelta(days=14)).strftime("%Y-%m-%d")
+    today = datetime.today()#-timedelta(days=1)
+    date_today = (today).strftime("%Y-%m-%d")
+    date_14days = (today-timedelta(days=14)).strftime("%Y-%m-%d")
 
     tables = db.TABLES
 
@@ -124,14 +148,14 @@ def cross_compare(db: DBManager, summarizer: SummarizManager):
 
                     if already_match is not None:
                         if article1['url'] not in matches[already_match]['urls']:
-                            res = compare_with_match(matches[already_match], article1, table2['name'])
+                            res = compare_with_match(matches[already_match], article1, table2['name'], summarizer)
                         else:
-                            res = compare_with_match(matches[already_match], article2, table1['name'])
+                            res = compare_with_match(matches[already_match], article2, table1['name'], summarizer)
 
                         if res is not None:
                             matches[already_match] = res
                     else:
-                        res = compare(article1, article2, table1['name'], table2['name'])
+                        res = compare(article1, article2, table1['name'], table2['name'], summarizer)
                         if res is not None:
                             matches.append(res)
 
@@ -141,3 +165,8 @@ def cross_compare(db: DBManager, summarizer: SummarizManager):
     return matches
 
 
+if __name__ == "__main__":
+    db = DBManager(DB_NAME)
+    summarizer = SummarizManager()
+    matches = cross_compare(db, summarizer)
+    print(f'{green}Found {len(matches)} matches{reset}')
