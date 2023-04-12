@@ -103,6 +103,8 @@ def compare(article1, article2, table1, table2, summarizer: SummarizManager):
 
 def cross_compare(db: DBManager, summarizer: SummarizManager):
     today = datetime.today()#-timedelta(days=1)
+def cross_compare(today_path: str, db: DBManager, summarizer: SummarizManager):
+    today = datetime.today()-timedelta(days=1)
     date_today = (today).strftime("%Y-%m-%d")
     date_14days = (today-timedelta(days=14)).strftime("%Y-%m-%d")
 
@@ -161,6 +163,13 @@ def cross_compare(db: DBManager, summarizer: SummarizManager):
 
     # remove matches with less than 2 articles
     matches = [match for match in matches if len(match['articles']) > 1]
+
+    for match in matches:
+        # create folder for match
+        if not os.path.exists(f"{today_path}{match['uid']}"):
+            os.makedirs(f"{today_path}{match['uid']}")
+        with open(f"{today_path}{match['uid']}/match.json", 'w') as f:
+            json.dump(match, f, indent=4)
 
     return matches
 

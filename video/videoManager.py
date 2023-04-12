@@ -360,12 +360,6 @@ def create_final_thumbnail(tags, today_path, title):
     return img
 
 def process_match(today_path, match, summarizer, tts):
-    # create folder for match
-    if not os.path.exists(f"{today_path}{match['uid']}"):
-        os.makedirs(f"{today_path}{match['uid']}")
-    with open(f"{today_path}{match['uid']}/match.json", 'w') as f:
-        json.dump(match, f, indent=4)
-
     # create GPT input file
     info(f"Creating input for {match['uid']}")
     request_str = create_input(match, summarizer)
