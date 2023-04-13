@@ -10,7 +10,6 @@ from textUtils import SummarizManager, TTSManager, UploadManager
 from database.DB_manager import DBManager
 import matches.matchManager as mm
 import video.videoManager as vm
-from moviepy.editor import VideoFileClip
 import concurrent.futures
 
 import multiprocessing as mp
@@ -109,7 +108,7 @@ if __name__ == '__main__':
     today_path = "ChatGPT/"+today+"/"
 
     # get matches
-    matches = mm.cross_compare(db, summarizer)
+    matches = mm.cross_compare(today_path, db, summarizer)
 
     ########################## Create Videos ############################
     # create dict for description links

@@ -4,15 +4,14 @@ from tqdm import tqdm
 from datetime import datetime, timedelta
 from textUtils import *
 from database.DB_manager import DBManager
-from textUtils import SummarizManager, TTSManager
-import requests
+from textUtils import SummarizManager
 from thefuzz import fuzz
-from time import sleep
 from uuid import uuid4
 from transformers import GPT2TokenizerFast
 tokenizer = GPT2TokenizerFast.from_pretrained('gpt2')
-from PIL import Image
-from moviepy.editor import AudioFileClip, ImageClip, concatenate_videoclips
+
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 
 import os
 import imgkit
@@ -52,10 +51,6 @@ def compare_with_match(match, article, table: str, summarizer: SummarizManager):
     wratio = fuzz.WRatio(art1_txt, art2_txt)/100
     if ratio < MIN_RATIO and set_ratio < MIN_RATIO:
         return None
-    
-    # if fuzzy match ckeck with ChatGPT
-    if not gpt_compare(match['main_article']['article'], article, summarizer):
-        return None
         
     match['urls'].append(article['url'])
     match['articles'].append({
@@ -79,10 +74,6 @@ def compare(article1, article2, table1, table2, summarizer: SummarizManager):
     if ratio < MIN_RATIO and set_ratio < MIN_RATIO:
         return None
 
-    # if fuzzy match ckeck with ChatGPT
-    if not gpt_compare(article1, article2, summarizer):
-        return None
-
     return {
         'title': article1['title'],
         'summary': article1['abstract'],
@@ -101,10 +92,8 @@ def compare(article1, article2, table1, table2, summarizer: SummarizManager):
         },
     }
 
-def cross_compare(db: DBManager, summarizer: SummarizManager):
-    today = datetime.today()#-timedelta(days=1)
 def cross_compare(today_path: str, db: DBManager, summarizer: SummarizManager):
-    today = datetime.today()-timedelta(days=1)
+    today = datetime.today()#-timedelta(days=1)
     date_today = (today).strftime("%Y-%m-%d")
     date_14days = (today-timedelta(days=14)).strftime("%Y-%m-%d")
 
@@ -163,7 +152,26 @@ def cross_compare(today_path: str, db: DBManager, summarizer: SummarizManager):
 
     # remove matches with less than 2 articles
     matches = [match for match in matches if len(match['articles']) > 1]
-
+    info(f'{yellow}Found {len(matches)} matches{reset}')
+    for match in tqdm(matches):
+        main_article = match['main_article']['article']
+        future_to_comparison = {}
+        # create thread pool for comparison
+        with ThreadPoolExecutor() as executor:
+            # compare with other articles
+            for article in match['articles']:
+                future = executor.submit(gpt_compare, main_article, article['article'], summarizer)
+            
+                future_to_comparison[future] = (match['uid'], article)
+        
+        for future in as_completed(future_to_comparison):
+            uid, article = future_to_comparison[future]
+            if uid != match['uid']:
+                raise Exception('UIDs do not match')
+            if not future.result():
+                match['articles'].remove(article)
+                match['urls'].remove(article['article']['url'])
+                
     for match in matches:
         # create folder for match
         if not os.path.exists(f"{today_path}{match['uid']}"):

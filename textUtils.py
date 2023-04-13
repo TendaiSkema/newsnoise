@@ -1,9 +1,4 @@
-from scipy.spatial.distance import cosine
 from summarizer import TransformerSummarizer
-from nltk import word_tokenize
-from nltk.corpus import stopwords
-from math import dist
-from google.cloud import texttospeech
 import google_auth_oauthlib.flow
 import googleapiclient.discovery
 import googleapiclient.errors
@@ -66,7 +61,7 @@ class TTSManager:
         self.voices = [
             'de-AT-JonasNeural',
             'de-DE-RalfNeural',
-            "de-CH-LeniNeural",
+            #"de-CH-LeniNeural",
             "de-AT-IngridNeural",
             "de-DE-ElkeNeural"
         ]
@@ -100,7 +95,7 @@ class UploadManager:
                 'defaultLanguage': 'de'
             },
             "status": {
-                "privacyStatus": "public",  # Change to "public" or "private" as desired
+                "privacyStatus": "private",  # Change to "public" or "private" as desired
                 'madeForKids': False
             }
         }
@@ -141,15 +136,25 @@ class SummarizManager:
 
     def GPT_similarity(self, mainText, text) -> bool:
         primer = GPT_SIMILARITY_PRIMER.format(text=mainText)
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                    {"role": "user", "content": primer},
-                    {"role": "assistant", "content": "ACK"},
-                    {"role": "user", "content": text}
-                ]
-        )
-        return 'NACK' not in response['choices'][0]['message']['content'] and 'ACK' in response['choices'][0]['message']['content']
+        for _ in range(5):
+            response = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                        {"role": "user", "content": primer},
+                        {"role": "assistant", "content": "ACK"},
+                        {"role": "user", "content": text}
+                    ]
+            )
+            answer = response['choices'][0]['message']['content'] 
+            if answer == 'ACK':
+                return True
+            elif answer == 'NACK':
+                return False
+            
+            print(f"Bad Answer: {response['choices'][0]['message']['content']}")
+
+        print("GPT Similarity failed")
+        return False
 
 
     def get_skript_api(self, text: str, retries: int = 5)->str:
