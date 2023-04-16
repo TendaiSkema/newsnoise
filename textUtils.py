@@ -147,14 +147,16 @@ class SummarizManager:
             )
             answer = response['choices'][0]['message']['content'] 
             if answer == 'ACK':
+                print(f"Good Answer: {response['choices'][0]['message']['content']}")
                 return True
             elif answer == 'NACK':
+                print(f"Bad Answer: {response['choices'][0]['message']['content']}")
                 return False
             
             print(f"Bad Answer: {response['choices'][0]['message']['content']}")
 
         print("GPT Similarity failed")
-        return False
+        return None
 
 
     def get_skript_api(self, text: str, retries: int = 5)->str:

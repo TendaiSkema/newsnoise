@@ -11,13 +11,7 @@ from transformers import GPT2TokenizerFast
 tokenizer = GPT2TokenizerFast.from_pretrained('gpt2')
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
-
 import os
-import imgkit
-import random
-
-from textUtils import GPT_PRIMER
 
 QUELLEN_STRING = '''
 TITEL: {title}
@@ -168,7 +162,10 @@ def cross_compare(today_path: str, db: DBManager, summarizer: SummarizManager):
             uid, article = future_to_comparison[future]
             if uid != match['uid']:
                 raise Exception('UIDs do not match')
-            if not future.result():
+            res = future.result()
+            if res == None:
+                warn(f'{red}Could not compare {article["article"]["url"]}{reset}')
+            elif not res:
                 match['articles'].remove(article)
                 match['urls'].remove(article['article']['url'])
                 
