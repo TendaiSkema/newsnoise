@@ -126,6 +126,9 @@ def scrape_zeit(db : DBManager):
             raise Exception(f'Error scraping {url}')
         
         all_links = [ a['href'] for a in main.find_all('a')]
+        # remove duplicates
+        all_links = list(dict.fromkeys(all_links))
+        
         for link in all_links:
             try:
                 url = link
