@@ -34,3 +34,4 @@ Abonnieren Sie news2noise und bleiben Sie stets auf dem Laufenden. Werden Sie Te
     - [ ] Like & Sub
     - [ ] Sponsorships
 - [ ] Thumbnail
+- [ ] Descriptions
