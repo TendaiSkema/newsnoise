@@ -7,7 +7,8 @@ import openai
 import azure.cognitiveservices.speech as speechsdk
 from time import time, sleep
 from random import choice
-from secrets.secrets import AZURE_KEY, AZURE_REGION, OPENAI_KEY, GOOGLE_APPLICATION_CREDENTIALS
+from mysecrets.mysecrets import AZURE_KEY, AZURE_REGION, OPENAI_KEY, GOOGLE_APPLICATION_CREDENTIALS, GOOGLE_AUTH
+import json
 
 openai.api_key = OPENAI_KEY
 os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = GOOGLE_APPLICATION_CREDENTIALS
@@ -16,7 +17,7 @@ ALLOWED_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZäöüÄÖ�
 
 GPT_PRIMER = """
 Schreibe ein Transkript für eine Potcast, dass von einem TTS gesprochen wird, aus den Quellen welche ich dir geben werde.
-Mindestens 100 Wörter plus a title.
+Mindestens 100 Wörter und ein Titel.
 
 jede Quelle besteht aus:
 TITEL: Überschrift des Artikels
@@ -38,22 +39,36 @@ DATE: 2023-01-14
 ZUSAMMENFASSUNG: News2Noise hat die News Szene revolutioniert. Jeder hört nun den Potcast.
 
 Transkript (output):
-News2Noise Erfolgs Schlager
-
-Wie der Tagesanzeiger vor 2 Wochen berichtete hat News2Noise eine neue form der News Generierung getestet. 
-Nun berichtet 20min das dieses Konzept ein Erfolgs Schlager ist.
+{
+    "titel": "News2Noise Erfolgs Schlager",
+    "skript": "Wie der Tagesanzeiger vor 2 Wochen berichtete hat News2Noise eine neue form der News Generierung getestet. 
+    Nun berichtet 20min das dieses Konzept ein Erfolgs Schlager ist.",
+    "length": 26
+}
 
 Antworte mit ACK wenn du verstehst.
 """
 
-GPT_SIMILARITY_PRIMER = '''Ich gebe dir einen Haupt-Artikel. darauf folgend gebe ich dir weitere Artikel. Du antwortest nur mit ACK oder NACK.
-Antworte mit ACK wenn der gegebene Artikel über das selbe Thema ist wie der Haupt-Artikel.
-ansonsten NACK.
-Achte darauf das z.B. die selben personen oder ort etc. darin vorkommen.
+GPT_SIMILARITY_PRIMER = '''Ich gebe dir einen Haupt-Artikel. darauf folgend gebe ich dir weitere Artikel. Du antwortest mit einem JSON das den Grund (reason) und einen bool ob er über das selbe thema/ereigniss ist wie der Haubtartikel 
+Antwort beispiel:
+{example}
+
+Antworte mit ACK wenn du deine Aufgabe verstanden hast.
 
 hier der Haupt-Artikel:
 {text}
 '''
+
+SIMILARITY_EXAMPLE = '{\n\t"reason": "Findet nicht am selben ort statt",\n\t"same": false\n}'
+
+SUMMARY_PRIMER = '''Ich gebe dir einen Artikel. Du antwortest mit einem JSON das die Zusammenfassung und Keywords enthält.
+Antwort beispiel:
+{
+    "summary": "Ein Reddit-User namens bread_car hat die künstliche Intelligenz Midjourney genutzt, um für fast jeden Kanton der Schweiz einen eigenen Superhelden zu erstellen. Dies dauerte einen Nachmittag, erforderte aber Geduld und Kreativität, da Midjourney manchmal Probleme hatte, bestimmte Hintergründe oder Begriffe zu erkennen und umzusetzen.",
+    "tags": ["Reddit-User", "bread_car", "künstliche Intelligenz", "Midjourney", "Schweizer Kantone", "Superhelden", "Nachmittag", "Geduld", "Kreativität", "Hintergründe", "Begriffe", "Erkennung", "Umsetzung"]
+}
+
+Antworte mit ACK wenn du deine Aufgabe verstanden hast.'''
 
 class TTSManager:
     def __init__(self) -> None:
@@ -80,8 +95,8 @@ class UploadManager:
         # Set up the YouTube API client
         scopes = ["https://www.googleapis.com/auth/youtube.upload"]
         flow = google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file(
-            "secrets/client_secret_676651930909-75fbsv918hglgedf7776vua3v5rq1ldr.apps.googleusercontent.com.json", scopes)
-        self.credentials = flow.run_console()
+            GOOGLE_AUTH, scopes)
+        self.credentials = flow.run_local_server(port=3000)
         self.youtube = googleapiclient.discovery.build("youtube", "v3", credentials=self.credentials)
 
     def upload(self, video_path, title, description, tags, category_id):
@@ -95,7 +110,7 @@ class UploadManager:
                 'defaultLanguage': 'de'
             },
             "status": {
-                "privacyStatus": "private",  # Change to "public" or "private" as desired
+                "privacyStatus": "public",  # Change to "public" or "private" as desired
                 'madeForKids': False
             }
         }
@@ -135,29 +150,32 @@ class SummarizManager:
         return ''.join(self.GPT2_model(text, ratio=ratio))
 
     def GPT_similarity(self, mainText, text) -> bool:
-        primer = GPT_SIMILARITY_PRIMER.format(text=mainText)
+        primer = GPT_SIMILARITY_PRIMER.format(text=mainText, example=SIMILARITY_EXAMPLE)
+        chat = [
+                    {"role": "user", "content": primer},
+                    {"role": "assistant", "content": "ACK"},
+                    {"role": "user", "content": text}
+                ]
         for _ in range(5):
             response = openai.ChatCompletion.create(
                 model="gpt-3.5-turbo",
-                messages=[
-                        {"role": "user", "content": primer},
-                        {"role": "assistant", "content": "ACK"},
-                        {"role": "user", "content": text}
-                    ]
+                messages=chat
             )
             answer = response['choices'][0]['message']['content'] 
-            if answer == 'ACK':
-                print(f"Good Answer: {response['choices'][0]['message']['content']}")
-                return True
-            elif answer == 'NACK':
-                print(f"Bad Answer: {response['choices'][0]['message']['content']}")
-                return False
-            
-            print(f"Bad Answer: {response['choices'][0]['message']['content']}")
+            try:
+                answer_js = json.loads(answer)
+                if "same" in answer_js and "reason" in answer_js:
+                    return bool(answer_js["same"])
+                else:
+                    chat.append({"role": "assistant", "content": answer})
+                    chat.append({"role": "user", "content": "Keine Gültige Antwort. Nur Json mit reason und same ist erlaubt."})
+                    
+            except Exception as e:
+                chat.append({"role": "assistant", "content": answer})
+                chat.append({"role": "user", "content": f"Keine Gültige Antwort. Nur Json mit reason und same ist erlaubt. ERROR: {e}"})
 
         print("GPT Similarity failed")
         return None
-
 
     def get_skript_api(self, text: str, retries: int = 5)->str:
         for _ in range(retries): 
@@ -171,7 +189,12 @@ class SummarizManager:
                             {"role": "user", "content": text}
                         ]
                     )
-                return response['choices'][0]['message']['content'], response['usage']
+                answer = response['choices'][0]['message']['content']
+                answer_js = json.loads(answer)
+                if ("skript" in answer_js) and ("titel" in answer_js) and ("length" in answer_js):
+                    return answer_js, response['usage']
+                else:
+                    print(answer_js) 
             except Exception as e:
                 print(e)
             sleep(5)
@@ -225,11 +248,6 @@ class SummarizManager:
 def remove_special_chars(text: str) -> str:
     return ''.join([char for char in text if char in ALLOWED_CHARS])
 
-def remove_stop_words(text: str) -> str:
-    split_text = text.split(' ')
-    split_text = [word for word in split_text if word not in UNNECESSARY_WORDS]
-    return ' '.join(split_text)
-
 # removes all images from the text
 def remove_images(text: str) -> str:
     split_text = text.split('\n')
@@ -267,7 +285,6 @@ def cleanup_for_doc2vec(text: str) -> str:
 
 def cleanup(text:str)->str:
     text = remove_special_chars(text)
-    text = remove_stop_words(text)
     split_text = text.split('\n')
     #remove all empty lines
     split_text = [line for line in split_text if line != '']

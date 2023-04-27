@@ -1,14 +1,8 @@
 import json
 from logUtils import warn, green, reset, red, yellow, info, blue
-from tqdm import tqdm
-from datetime import datetime, timedelta
 from textUtils import *
-from database.DB_manager import DBManager
-from textUtils import SummarizManager, TTSManager
 import requests
-from thefuzz import fuzz
 from time import sleep
-from uuid import uuid4
 from transformers import GPT2TokenizerFast
 tokenizer = GPT2TokenizerFast.from_pretrained('gpt2')
 from PIL import Image, ImageDraw, ImageFont
@@ -78,9 +72,9 @@ def create_input(match, summarizer):
 
 def create_skript(request_str, summarizer, max_retries=5):
     skript = None
-    source_name = "api"
     for i in range(max_retries):
-        skript, usage = summarizer.get_skript_api(request_str)
+        skript_js, usage = summarizer.get_skript_api(request_str)
+        skript = skript_js['skript']
         if (usage is None) or (skript is None) or ('completion_tokens' not in usage):
             print(f'{red}Attempt: {i} failed{reset}')
             skript = None
@@ -91,9 +85,9 @@ def create_skript(request_str, summarizer, max_retries=5):
             continue
         else:
             print(f'{green}skript found{reset}: {len(tokenizer(skript)["input_ids"])}')
-            return skript, source_name
+            return skript_js
     
-    return None, None
+    return None
 
 def render_html_template(text, image_path=None, template='matches/template.html', css_path='matches/style.css'):
     """
@@ -369,15 +363,15 @@ def process_match(today_path, match, summarizer, tts):
     
     # create GPT output file
     info(f"Creating skript for {match['uid']}")
-    skript, source_name = create_skript(request_str, summarizer)
-    if skript is None:
+    skript_js = create_skript(request_str, summarizer)
+    if skript_js is None:
         warn(f"{red}Could not create skript for {match['uid']}{reset}")
         return
     
-    with open(f'{today_path}{match["uid"]}/skript_{source_name}.txt', 'w', encoding='utf-8') as f:
-        f.write(skript)
+    with open(f'{today_path}{match["uid"]}/skript.json', 'w', encoding='utf-8') as f:
+        json.dump(skript_js, f, indent=4)
     
-    title = skript.split('\n')[0]
+    title = skript_js['titel']
 
     # update title in match.json
     match['title'] = title
@@ -386,13 +380,13 @@ def process_match(today_path, match, summarizer, tts):
 
     # get tags
     info(f"Getting tags for {match['uid']}")
-    tags = summarizer.get_tags_for_skript(skript)
+    tags = summarizer.get_tags_for_skript(skript_js["skript"])
     with open(f'{today_path}{match["uid"]}/tags.json', 'w', encoding='utf-8') as f:
         json.dump(tags, f, indent=4)
 
     # create audio file
     info(f"Creating audio for {match['uid']}")
-    tts.syntisize(skript, f'{today_path}{match["uid"]}/audio.mp3')
+    tts.syntisize(skript_js["skript"], f'{today_path}{match["uid"]}/audio.mp3')
     sleep(10)
 
     info(f"Creating thumbnail for {match['uid']}")
