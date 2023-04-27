@@ -226,6 +226,26 @@ class SummarizManager:
         
         return []
 
+    def get_title_for_video(self, skripts, retries: int = 5)->str:
+        primer = """Erstelle einen Videotitel für folgende Untertitel von dem Transktipt eines Youtube Videos:\n"""
+        for _ in range(retries): 
+            try:
+                # Note: you need to be using OpenAI Python v0.27.0 for the code below to work
+                response = openai.ChatCompletion.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                            {"role": "user", "content": primer},
+                            {"role": "assistant", "content": "ACK"},
+                            {"role": "user", "content": skripts}
+                        ]
+                    )
+                return response['choices'][0]['message']['content']
+            except Exception as e:
+                print(e)
+            sleep(5)
+        
+        return None
+
     def get_thumbnail_description(self, text: str, retries: int = 5)->str:
         sys_template = """Erstelle eine Beschreibung für das folgende Transkript eines Youtube Videos mit den Themen:\n"""
         for _ in range(retries): 

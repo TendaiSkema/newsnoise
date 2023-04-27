@@ -158,9 +158,12 @@ if __name__ == '__main__':
     # create final video
     info("Creating final video")
     vm.create_final_video(videos, f'{today_path}')
+    # create titel for final video
+    info("Creating final titel")
+    title = vm.create_final_titel(tags, f'{today_path}', summarizer)
     # create final thumbnail
     info("Creating final thumbnail")
-    vm.create_final_thumbnail(tags, f'{today_path}', "Was Passiert in der Schweiz?!?!")
+    vm.create_final_thumbnail(tags, f'{today_path}', title)
 
     decription = vm.DESCRIPTION.format(**discription_links_dict)
 
@@ -175,6 +178,5 @@ if __name__ == '__main__':
         tags = tags[:10]
     video_id = uploadManager.upload(today_path+"final.mp4", title, decription, ['News', 'Schweiz', 'Deutschland', 'ChatGPT']+tags, 25)
     video_id = uploadManager.set_thumbnail(video_id, today_path+"final_thumbnail.png")
-
 
 

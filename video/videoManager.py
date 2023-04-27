@@ -353,6 +353,25 @@ def create_final_thumbnail(tags, today_path, title):
 
     return img
 
+def create_final_titel(tags, today_path, summatizer):
+    all_titles = []
+    for match in os.listdir(today_path):
+        if os.path.isdir(today_path+match):
+            if not os.path.exists(today_path+match+'/skript.json'):
+                continue
+            with open(today_path+match+'/skript.json') as f:
+                data = json.load(f)
+                all_titles += data['titel']
+
+    fused_skripts = '\n'.join(all_titles)
+
+    # create title
+    title = summatizer.get_title_for_video(fused_skripts)
+    if title == '':
+        title = None
+    
+    return title
+
 def process_match(today_path, match, summarizer, tts):
     # create GPT input file
     info(f"Creating input for {match['uid']}")
