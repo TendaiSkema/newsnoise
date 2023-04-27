@@ -1,0 +1,15 @@
+requests
+azure-cognitiveservices-speech
+google-api-python-client
+bert-extractive-summarizer
+openai
+google-auth-oauthlib
+transformers
+moviepy
+imgkit
+pandas
+thefuzz
+beautifulsoup4
+newspaper3k
+torch
+python-Levenshtein
