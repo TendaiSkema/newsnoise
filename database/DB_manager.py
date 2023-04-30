@@ -16,6 +16,7 @@ class DBManager:
         self.TABLES = db_conf['TABLES']
         self.TABLE_FIELDS = db_conf['FIELDS']
         self.FIELDS_NAMES = [field['name'] for field in self.TABLE_FIELDS]
+        self.VALUES = ', '.join(['?' for field in self.TABLE_FIELDS])
 
         #open(self.DB_PATH, 'a').close()
         self.conn = sqlite3.connect(self.DB_PATH)
@@ -26,6 +27,15 @@ class DBManager:
         self.conn.commit()
 
         self.c = self.conn.cursor()
+        self.PRAGMAS = {}
+        for table in self.TABLES:
+            pragmas_raw = self.c.execute(f"PRAGMA table_info({self.TABLES[table]})")
+            orderd_pragmas = [None for i in range(len(self.TABLE_FIELDS))]
+            for pragma in pragmas_raw:
+                orderd_pragmas[pragma[0]] = pragma[1]
+            if None in orderd_pragmas:
+                raise Exception(f'Could not get pragmas for table {table}')
+            self.PRAGMAS[table] = orderd_pragmas
 
     def __checkIfConnected(func):
         def wrapper(self,*args, **kwargs):
@@ -54,16 +64,8 @@ class DBManager:
             return False
         
         # Insert article into database
-        self.c.execute(f'INSERT INTO {self.TABLES[newspaper_name]} VALUES (?,?,?,?,?,?,?,?)', (
-            article_json['scrape_date'], 
-            article_json['publication_date'], 
-            article_json['category'], 
-            article_json['title'],
-            article_json['abstract'], 
-            article_json['url'], 
-            article_json['author'], 
-            article_json['text']
-        ))
+        self.c.execute(f'INSERT INTO {self.TABLES[newspaper_name]} VALUES ({self.VALUES})', 
+                       tuple([article_json[field] for field in self.PRAGMAS[newspaper_name]]))
 
         self.conn.commit()
         return True
