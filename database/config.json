@@ -9,6 +9,10 @@
     "FIELDS":
     [
         {
+            "name":"uid",
+            "type": "text"
+        },
+        {
             "name":"scrape_date",
             "type": "text"
         }, 
@@ -38,6 +42,14 @@
         }, 
         {
             "name":"text",
+            "type": "text"
+        },
+        {
+            "name":"summary",
+            "type": "text"
+        },
+        {
+            "name":"tags",
             "type": "text"
         }
     ]

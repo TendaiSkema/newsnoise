@@ -11,9 +11,10 @@ from database.DB_manager import DBManager
 import matches.matchManager as mm
 import video.videoManager as vm
 import concurrent.futures
-
+import uuid
 import multiprocessing as mp
 from time import sleep
+from tqdm import tqdm
 
 BLICK_NAME = 'Blick'
 TWENTYMIN_NAME = '20min'
@@ -87,6 +88,32 @@ if __name__ == '__main__':
         if value is None:
             error(f'{orange}Not all scrapers returned results!{reset}')
             continue
+        # remove duplicates in links
+        links = [article['url'] for article in value]
+        if len(links) != len(set(links)):
+            warn(f'{orange}Duplicates found in {key}!{reset}')
+            value = [article for article in value if article['url'] not in links]
+
+        for i, article in tqdm(enumerate(value), total=len(value), desc=f'Processing {key} articles'):
+            text = article['text']
+            if not db.pass_filters(article, key):
+                value[i] = None
+                continue
+            if summarizer.get_token_count(text) > 3500:
+                text = summarizer.summarize(text, 3500/summarizer.get_token_count(text))
+            article['uid'] = str(uuid.uuid4())
+            res = summarizer.summarize_and_tag_gpt3(text)
+            if res is None or res == {}:
+                res = {
+                    'summary': '',
+                    'tags': []
+                }
+            article['summary'] = res['summary']
+            article['tags'] = ';'.join(res['tags'])
+            value[i] = article
+
+        # remove articles that did not pass the filters
+        value = [article for article in value if article is not None]
         db.insert_many(value, key)
 
     twentymin_df = db.get_by_publish_date(TWENTYMIN_NAME, datetime.now().strftime("%Y-%m-%d"))

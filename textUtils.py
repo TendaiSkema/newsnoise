@@ -9,6 +9,8 @@ from time import time, sleep
 from random import choice
 from mysecrets.mysecrets import AZURE_KEY, AZURE_REGION, OPENAI_KEY, GOOGLE_APPLICATION_CREDENTIALS, GOOGLE_AUTH
 import json
+from transformers import GPT2TokenizerFast
+tokenizer = GPT2TokenizerFast.from_pretrained('gpt2')
 
 openai.api_key = OPENAI_KEY
 os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = GOOGLE_APPLICATION_CREDENTIALS
@@ -148,6 +150,33 @@ class SummarizManager:
     def summarize(self, text, ratio=0.33):
         text = medium_cleanup(text)
         return ''.join(self.GPT2_model(text, ratio=ratio))
+    
+    def summarize_and_tag_gpt3(self, text):
+        chat = [
+                    {"role": "user", "content":SUMMARY_PRIMER},
+                    {"role": "assistant", "content": "ACK"},
+                    {"role": "user", "content": text}
+                ]
+        for _ in range(5):
+            try:
+                response = openai.ChatCompletion.create(
+                    model="gpt-3.5-turbo",
+                    messages=chat
+                )
+                resp_json = json.loads(response['choices'][0]['message']['content'])
+                if "summary" in resp_json and "tags" in resp_json:
+                    return resp_json
+                else:
+                    if len(chat) < 4:
+                        chat.append({"role": "assistant", "content": response['choices'][0]['message']['content']})
+                        chat.append({"role": "user", "content": "Json hat nicht die Keys 'summary' und 'tags'"})
+            except Exception as e:
+                if len(chat) < 4:
+                    chat.append({"role": "assistant", "content": str(e)})
+                    chat.append({"role": "user", "content": "Keine Gültige Antwort. Nur Json mit 'summary' und 'tags' ist erlaubt."})
+
+        return None
+
 
     def GPT_similarity(self, mainText, text) -> bool:
         primer = GPT_SIMILARITY_PRIMER.format(text=mainText, example=SIMILARITY_EXAMPLE)
@@ -172,7 +201,7 @@ class SummarizManager:
                     
             except Exception as e:
                 chat.append({"role": "assistant", "content": answer})
-                chat.append({"role": "user", "content": f"Keine Gültige Antwort. Nur Json mit reason und same ist erlaubt. ERROR: {e}"})
+                chat.append({"role": "user", "content": f"Keine Gültige Antwort. Nur Json mit reason text und bool same ist erlaubt. ERROR: {e}"})
 
         print("GPT Similarity failed")
         return None
@@ -264,6 +293,9 @@ class SummarizManager:
             sleep(5)
         
         return None
+
+    def get_token_count(self,text:str) -> int:
+        return len(tokenizer(text)['input_ids'])
 
 def remove_special_chars(text: str) -> str:
     return ''.join([char for char in text if char in ALLOWED_CHARS])
