@@ -1,5 +1,5 @@
 {
-    "DB_NAME": "articles.db",
+    "DB_NAME": "news2noise.db",
     "TABLES":{
       "Blick":"blick_articles",
       "20min":"twentymin_articles",

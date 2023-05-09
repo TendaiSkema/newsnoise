@@ -91,8 +91,16 @@ if __name__ == '__main__':
         # remove duplicates in links
         links = [article['url'] for article in value]
         if len(links) != len(set(links)):
-            warn(f'{orange}Duplicates found in {key}!{reset}')
-            value = [article for article in value if article['url'] not in links]
+            starting_len = len(value)
+            value_buffer = []
+            links_buffer = []
+            for article in value:
+                if article['url'] not in links_buffer:
+                    value_buffer.append(article)
+                    links_buffer.append(article['url'])
+            value = value_buffer
+            warn(f'{orange}Duplicates found in {key}! reduced from {starting_len} to {len(value)}{reset}')
+
 
         for i, article in tqdm(enumerate(value), total=len(value), desc=f'Processing {key} articles'):
             text = article['text']
