@@ -180,7 +180,7 @@ def scrape_20min(db):
             article_url = START_URL+ part_url
 
             # check if article is already in database
-            if db.check_if_exists(article_url, '20min'):
+            if db.check_if_article_exists(article_url):
                 continue
 
             article_md = scrape_article(article_url, category)

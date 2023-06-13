@@ -14,9 +14,11 @@ import random
 
 from textUtils import GPT_PRIMER
 
+MEDIA_PATH = 'Media/'
+
 QUELLEN_STRING = '''
 TITEL: {title}
-ZEITUNG: {newspaper}
+ZEITUNG: {source}
 DATE: {publication_date}
 ZUSAMMENFASSUNG: {summary}
 '''
@@ -32,7 +34,7 @@ Die Inhalte wurden von den folgenden News-Seiten gesammelt:
 - Tagesanzeiger.ch
 {Tagesanzeiger}
 - Zeit.de
-{dieZeit}
+{die Zeit}
 """
 
 MAX_TOKENS = 4000
@@ -57,8 +59,8 @@ def create_input(match, summarizer):
     #print(f"{green}{match['title']}{reset}")
     request_str = ""
     for article_json in match['articles']:
-        article = article_json['article']
-        article['newspaper'] = article_json['newspaper']
+        article = article_json
+        article['source'] = article_json['source']
         weighted_ratio = calc_weight(article['text'], len(match['articles']))
         if weighted_ratio >= 1:
             article['summary'] = medium_cleanup(article['text'])
@@ -131,13 +133,13 @@ def create_video(image_list, title, base_path, audio_file='audio.mp3', output_fi
     # check if image list is empty
     info(f'Prepare {len(image_list)} images for video creation')
     if len(image_list) == 0:
-        image_list = [{'url': 'https://upload.wikimedia.org/wikipedia/commons/1/14/No_Image_Available.jpg', 'txt': 'No Image Available'}]
+        image_list = ['https://upload.wikimedia.org/wikipedia/commons/1/14/No_Image_Available.jpg']
     
     # download images
     clips = []
     for i, image in enumerate(image_list):
         try:
-            response = requests.get(image['url'])
+            response = requests.get(image)
             temp_img_id = random.randint(0, 1000000000)
             with open(f'temp/temp_image{temp_img_id}.png', 'wb') as temp_file:
                 temp_file.write(response.content)
@@ -176,7 +178,7 @@ def create_video(image_list, title, base_path, audio_file='audio.mp3', output_fi
     info(f"{blue}Creating video for {title}: {base_path}{reset} | t: {audio.duration}")
     final_clip = concatenate_videoclips(clips, method='compose')
     final_clip = final_clip.set_audio(audio)
-    final_clip.write_videofile(base_path+output_file, fps=24, threads = 5, logger=None)
+    final_clip.write_videofile(base_path+output_file, 24, threads = 5, logger=None)
     info(f'Video saved to {base_path+output_file}')
     return final_clip
 
@@ -261,7 +263,7 @@ def create_thumbnail(images, tags, today_path):
     found = False
     for i in range(100):
         try:
-            response = requests.get(random_front['url'])
+            response = requests.get(random_front)
             found = True
         except:
             random_front = random.choice(images)
@@ -270,8 +272,8 @@ def create_thumbnail(images, tags, today_path):
             break
     
     if not found:
-        random_front = {'url': 'https://upload.wikimedia.org/wikipedia/commons/1/14/No_Image_Available.jpg', 'txt': 'No Image Available'}
-        response = requests.get(random_front['url'])
+        random_front = 'https://upload.wikimedia.org/wikipedia/commons/1/14/No_Image_Available.jpg'
+        response = requests.get(random_front)
 
     temp_image_id = random.randint(0, 100000)
     with open(f'temp/temp_image{temp_image_id}.png', 'wb') as temp_file:
@@ -293,25 +295,20 @@ def create_thumbnail(images, tags, today_path):
 
     return img
 
-def create_final_thumbnail(tags, today_path, title):
+def create_final_thumbnail(matches, today_date, today_path, title):
     base_image = Image.open('matches/thumbnail.png')
     base_image = base_image.convert('RGBA')
 
     # Define the bounding box
     bbox = (50, 100, 1000, 650)
 
-    # load all natches from today and get all image links
+    # load all matches from today and get all image links
     images = []
-    for match in os.listdir(today_path):
-        if os.path.isdir(today_path+match):
-            with open(today_path+match+'/match.json') as f:
-                data = json.load(f)
-                images += [img_dic['url'] for img_dic in data['images']]
+    for match in matches:
+        images += match['images']
 
     if images == []:
-        # save base image as thumbnail
-        base_image.save(today_path+'final_thumbnail.png')
-        return base_image
+        raise Exception('No images found!!')
     # get random image
     random_front = random.choice(images)
     response = None
@@ -335,8 +332,9 @@ def create_final_thumbnail(tags, today_path, title):
     # remove temp file
     try:
         os.remove(f'temp/temp_image{temp_image_id}.jpg')
-    except:
+    except Exception as e:
         warn('Could not remove temp file!!')
+        warn(e)
     
     img = img.resize(base_image.size)
     img = img.convert('RGBA')
@@ -372,43 +370,50 @@ def create_final_titel(tags, today_path, summatizer):
     
     return title
 
-def process_match(today_path, match, summarizer, tts):
+def process_match(db, match:dict, summarizer: SummarizManager, tts:TTSManager):
     # create GPT input file
     info(f"Creating input for {match['uid']}")
     request_str = create_input(match, summarizer)
     # save input file
-    with open(f"{today_path}{match['uid']}/input.txt", 'w', encoding='utf-8') as f:
-        f.write(request_str)
+    match['input'] = request_str
     
     # create GPT output file
     info(f"Creating skript for {match['uid']}")
     skript_js = create_skript(request_str, summarizer)
     if skript_js is None:
         warn(f"{red}Could not create skript for {match['uid']}{reset}")
-        return
+        return None
     
-    with open(f'{today_path}{match["uid"]}/skript.json', 'w', encoding='utf-8') as f:
-        json.dump(skript_js, f, indent=4)
+    match['script'] = skript_js['skript']
     
     title = skript_js['titel']
 
     # update title in match.json
     match['title'] = title
-    with open(f"{today_path}{match['uid']}/match.json", 'w') as f:
-        json.dump(match, f, indent=4)
 
     # get tags
     info(f"Getting tags for {match['uid']}")
     tags = summarizer.get_tags_for_skript(skript_js["skript"])
-    with open(f'{today_path}{match["uid"]}/tags.json', 'w', encoding='utf-8') as f:
-        json.dump(tags, f, indent=4)
-
+    match['tags'] = tags
+    # create directory
+    if  not os.path.exists(f'{MEDIA_PATH}{match["uid"]}'):
+        # create match folder
+        os.mkdir(f'{MEDIA_PATH}{match["uid"]}')
     # create audio file
     info(f"Creating audio for {match['uid']}")
-    tts.syntisize(skript_js["skript"], f'{today_path}{match["uid"]}/audio.mp3')
+    tts.syntisize(skript_js["skript"], f'{MEDIA_PATH}{match["uid"]}/audio.mp3')
     sleep(10)
 
     info(f"Creating thumbnail for {match['uid']}")
-    create_thumbnail(match['images'], tags, f'{today_path}{match["uid"]}/')
+    create_thumbnail(match['images'], tags, f'{MEDIA_PATH}{match["uid"]}/')
+
+    create_video(match['images'], match['title'], f'{MEDIA_PATH}{match["uid"]}/')
+
+    # join all list into string
+    match['tags'] = ';'.join(match['tags'])
+    match['images'] = ';'.join(match['images'])
+    match['articles'] = ';'.join([str(a['uid']) for a in match['articles']])
+    db.update('matches', match)
+    info(f"Finished {match['uid']}")
 
 

@@ -10,6 +10,7 @@ from random import choice
 from mysecrets.mysecrets import AZURE_KEY, AZURE_REGION, OPENAI_KEY, GOOGLE_APPLICATION_CREDENTIALS, GOOGLE_AUTH
 import json
 from transformers import GPT2TokenizerFast
+import urllib.request 
 tokenizer = GPT2TokenizerFast.from_pretrained('gpt2')
 
 openai.api_key = OPENAI_KEY
@@ -63,11 +64,12 @@ hier der Haupt-Artikel:
 
 SIMILARITY_EXAMPLE = '{\n\t"reason": "Findet nicht am selben ort statt",\n\t"same": false\n}'
 
-SUMMARY_PRIMER = '''Ich gebe dir einen Artikel. Du antwortest mit einem JSON das die Zusammenfassung und Keywords enthält.
-Antwort beispiel:
+SUMMARY_PRIMER = '''Ich gebe dir einen Artikel. Du antwortest mit einem JSON das die Zusammenfassung und Keywords enthält. Ein Tag darf nur aus einem Wort bestehen und keine Leertaste enthalten.
+Falls mehrere Wörter notwendig sind separiere sie.
+Antwort Beispiel:
 {
     "summary": "Ein Reddit-User namens bread_car hat die künstliche Intelligenz Midjourney genutzt, um für fast jeden Kanton der Schweiz einen eigenen Superhelden zu erstellen. Dies dauerte einen Nachmittag, erforderte aber Geduld und Kreativität, da Midjourney manchmal Probleme hatte, bestimmte Hintergründe oder Begriffe zu erkennen und umzusetzen.",
-    "tags": ["Reddit-User", "bread_car", "künstliche Intelligenz", "Midjourney", "Schweizer Kantone", "Superhelden", "Nachmittag", "Geduld", "Kreativität", "Hintergründe", "Begriffe", "Erkennung", "Umsetzung"]
+    "tags": ["Reddit-User", "bread_car", "künstliche Intelligenz", "Midjourney", "Schweiz", "Kantone", "Superhelden", "Nachmittag", "Geduld", "Kreativität", "Hintergründe", "Begriffe", "Erkennung", "Umsetzung"]
 }
 
 Antworte mit ACK wenn du deine Aufgabe verstanden hast.'''
@@ -89,8 +91,7 @@ class TTSManager:
         speech_synthesizer = speechsdk.SpeechSynthesizer(speech_config=self.speech_config, audio_config=audio_config)
         speech_synthesis_result = speech_synthesizer.speak_text_async(text).get()
         if speech_synthesis_result.reason != speechsdk.ResultReason.SynthesizingAudioCompleted:
-            print(f"Speech synthesis Failed: {speech_synthesis_result.reason} .")
-            return
+            raise(f"Speech synthesis Failed: {speech_synthesis_result.reason} .")
 
 class UploadManager:
     def __init__(self) -> None:
@@ -112,7 +113,7 @@ class UploadManager:
                 'defaultLanguage': 'de'
             },
             "status": {
-                "privacyStatus": "public",  # Change to "public" or "private" as desired
+                "privacyStatus": "private",  # Change to "public" or "private" as desired
                 'madeForKids': False
             }
         }
@@ -165,6 +166,12 @@ class SummarizManager:
                 )
                 resp_json = json.loads(response['choices'][0]['message']['content'])
                 if "summary" in resp_json and "tags" in resp_json:
+                    # splitt all tags with space in them into multiple tags
+                    for tag in resp_json['tags']:
+                        if " " in tag:
+                            resp_json['tags'].remove(tag)
+                            resp_json['tags'].extend(tag.split(" "))
+                    
                     return resp_json
                 else:
                     if len(chat) < 4:
@@ -177,7 +184,6 @@ class SummarizManager:
 
         return None
 
-
     def GPT_similarity(self, mainText, text) -> bool:
         primer = GPT_SIMILARITY_PRIMER.format(text=mainText, example=SIMILARITY_EXAMPLE)
         chat = [
@@ -187,7 +193,7 @@ class SummarizManager:
                 ]
         for _ in range(5):
             response = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
+                model="gpt-4",
                 messages=chat
             )
             answer = response['choices'][0]['message']['content'] 
@@ -211,7 +217,7 @@ class SummarizManager:
             try:
                 # Note: you need to be using OpenAI Python v0.27.0 for the code below to work
                 response = openai.ChatCompletion.create(
-                    model="gpt-3.5-turbo",
+                    model="gpt-4",
                     messages=[
                             {"role": "user", "content": GPT_PRIMER},
                             {"role": "assistant", "content": "ACK"},
@@ -256,12 +262,12 @@ class SummarizManager:
         return []
 
     def get_title_for_video(self, skripts, retries: int = 5)->str:
-        primer = """Erstelle einen Videotitel für folgende Untertitel von dem Transktipt eines Youtube Videos:\n"""
+        primer = """Erstelle einen Thumbnail-titel für folgende Liste von Themen im Video von dem Transktipt eines Youtube Videos. Der Titel sollte nur 3 - 5 Wörter enthalten:\n"""
         for _ in range(retries): 
             try:
                 # Note: you need to be using OpenAI Python v0.27.0 for the code below to work
                 response = openai.ChatCompletion.create(
-                    model="gpt-3.5-turbo",
+                    model="gpt-4",
                     messages=[
                             {"role": "user", "content": primer},
                             {"role": "assistant", "content": "ACK"},
@@ -371,7 +377,7 @@ def medium_cleanup(text: str)->str:
     return '\n'.join(text)
 
 def get_images(text: str) -> list:
-    split_text = text.split('\n')
+    split_text = str(text).split('\n')
     images = []
     for line in split_text:
         if '![' in line:
@@ -383,5 +389,14 @@ def get_images(text: str) -> list:
         image_text = image[image.find('[')+1:image.find(']')]
         # get image url from (...)
         image_url = image[image.find('(')+1:image.find(')')]
+
+        # try to download image to check if it is valid
+        try:
+            urllib.request.urlretrieve(image_url, 'temp.jpg')
+            os.remove('temp.jpg')
+        except:
+            continue
+        
         imag_map.append({'txt':image_text, 'url':image_url})
+
     return imag_map

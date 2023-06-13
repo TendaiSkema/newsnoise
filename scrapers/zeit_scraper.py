@@ -133,7 +133,7 @@ def scrape_zeit(db : DBManager):
             try:
                 url = link
                 # check if article is already in database
-                if db.check_if_exists(url, 'dieZeit'):
+                if db.check_if_article_exists(url):
                     continue
                 elif not "www.zeit.de" in url:
                     continue

@@ -188,7 +188,7 @@ def scrape_blick(db)-> list:
                 if not url.endswith('.html'):
                     continue
                 # check if article is already in database
-                if db.check_if_exists(url, 'Blick'):
+                if db.check_if_article_exists(url):
                     continue
 
                 md = scrape_article(url, category)

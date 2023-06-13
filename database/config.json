@@ -1,56 +1,93 @@
 {
     "DB_NAME": "news2noise.db",
     "TABLES":{
-      "Blick":"blick_articles",
-      "20min":"twentymin_articles",
-      "Tagesanzeiger":"tagi_articles",
-      "dieZeit":"zeit_articles"
+      "articles":"articles",
+      "matches":"matches"
     },
-    "FIELDS":
-    [
-        {
-            "name":"uid",
-            "type": "text"
-        },
-        {
-            "name":"scrape_date",
-            "type": "text"
-        }, 
-        {
-            "name":"publication_date",
-            "type": "text"
-        }, 
-        {
-            "name":"category",
-            "type": "text"
-        }, 
-        {
-            "name":"title",
-            "type": "text"
-        }, 
-        {
-            "name":"abstract",
-            "type": "text"
-        }, 
-        {
-            "name":"url",
-            "type": "text"
-        }, 
-        {
-            "name":"author",
-            "type": "text"
-        }, 
-        {
-            "name":"text",
-            "type": "text"
-        },
-        {
-            "name":"summary",
-            "type": "text"
-        },
-        {
-            "name":"tags",
-            "type": "text"
-        }
-    ]
+    "FIELDS": {
+        "articles":[
+            {
+                "name":"uid",
+                "type": "text"
+            },
+            {
+                "name":"source",
+                "type": "text"
+            },
+            {
+                "name":"scrape_date",
+                "type": "text"
+            }, 
+            {
+                "name":"publication_date",
+                "type": "text"
+            }, 
+            {
+                "name":"category",
+                "type": "text"
+            }, 
+            {
+                "name":"title",
+                "type": "text"
+            }, 
+            {
+                "name":"abstract",
+                "type": "text"
+            }, 
+            {
+                "name":"url",
+                "type": "text"
+            }, 
+            {
+                "name":"author",
+                "type": "text"
+            }, 
+            {
+                "name":"text",
+                "type": "text"
+            },
+            {
+                "name":"summary",
+                "type": "text"
+            },
+            {
+                "name":"tags",
+                "type": "text"
+            }
+        ],
+        "matches":[
+            {
+                "name":"uid",
+                "type": "text"
+            },
+            {
+                "name":"date",
+                "type": "text"
+            }, 
+            {
+                "name":"articles",
+                "type": "text"
+            }, 
+            {
+                "name":"images",
+                "type": "text"
+            },  
+            {
+                "name":"tags",
+                "type": "text"
+            },
+            {
+                "name":"input",
+                "type": "text"
+            },
+            {
+                "name":"title",
+                "type": "text"
+            }, 
+            {
+                "name":"script",
+                "type": "text"
+            }
+        ]
+    }
 }

@@ -9,6 +9,7 @@ from thefuzz import fuzz
 from uuid import uuid4
 from transformers import GPT2TokenizerFast
 tokenizer = GPT2TokenizerFast.from_pretrained('gpt2')
+from pandas import DataFrame
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
@@ -19,166 +20,172 @@ DATE: {publication_date}
 ZUSAMMENFASSUNG: {summary}
 '''
 
-MIN_RATIO = 0.6
+THREASHHOLD = 0.15
+
+max_found_ratio = 0.0
 
 DB_NAME = 'articles.db'
 BLICK_NAME = 'Blick'
 TWENTYMIN_NAME = '20min'
 TAGI_NAME = 'Tagesanzeiger'
 
+# @GPT: This function compares the similarity of two articles. 
+# The articles are provided as dictionaries (`main_art` and `art`), 
+# and are formatted into a standard string form using `QUELLEN_STRING`. 
+# These formatted strings are then fed to the 'SummarizManager' instance (`summarizer`), 
+# which calculates the similarity using a GPT model (presumably, 
+# using a method like cosine similarity or some other semantic similarity measure on the vectorized texts). 
+# The function returns the similarity score;
 def gpt_compare(main_art, art, summarizer: SummarizManager):
-    main_art['summary'] = summarizer.summarize(main_art['text'], 0.5)
     main_source = QUELLEN_STRING.format(**main_art)
-
-    art['summary'] = summarizer.summarize(art['text'], 0.5)
     art_summary = QUELLEN_STRING.format(**art)
 
     return summarizer.GPT_similarity(main_source, art_summary)
 
-def compare_with_match(match, article, table: str, summarizer: SummarizManager):
-    art1_txt = medium_cleanup(article['abstract'])
-    art2_txt = medium_cleanup(match['main_article']['article']['abstract'])
-    # get ratios
-    ratio = fuzz.token_sort_ratio(art1_txt, art2_txt)/100
-    set_ratio = fuzz.token_set_ratio(art1_txt, art2_txt)/100
-    qratio = fuzz.QRatio(art1_txt, art2_txt)/100
-    wratio = fuzz.WRatio(art1_txt, art2_txt)/100
-    if ratio < MIN_RATIO and set_ratio < MIN_RATIO:
-        return None
-        
-    match['urls'].append(article['url'])
-    match['articles'].append({
-        'newspaper': table,
-        'category': article['category'],
-        'article': article,
-        'ratios': [ratio, set_ratio, qratio, wratio]
-    })
-    match['images'].extend(get_images(article['text']))
-    
-    return match
-    
-def compare(article1, article2, table1, table2, summarizer: SummarizManager):
-    art1_txt = medium_cleanup(article1['abstract'])
-    art2_txt = medium_cleanup(article2['abstract'])
-    # get ratios
-    ratio = fuzz.token_sort_ratio(art1_txt, art2_txt)/100
-    set_ratio = fuzz.token_set_ratio(art1_txt, art2_txt)/100
-    qratio = fuzz.QRatio(art1_txt, art2_txt)/100
-    wratio = fuzz.WRatio(art1_txt, art2_txt)/100
-    if ratio < MIN_RATIO and set_ratio < MIN_RATIO:
-        return None
+def tag_matching(article1:dict, article2:dict) -> float:
+    # get all the tags from today and 14days as sets
+    set1 = set(article1['tags'])
+    set2 = set(article2['tags'])
 
-    return {
-        'title': article1['title'],
-        'summary': article1['abstract'],
-        'urls': [article1['url'], article2['url']],
-        'images': get_images(article1['text']),
-        'uid': uuid4().hex,
-        'articles': [{
-            'newspaper': table2,
-            'category': article2['category'],
-            'article': article2,
-            'ratios': [ratio, set_ratio, qratio, wratio]
-        }],
-        'main_article': {
-            'newspaper': table1, 
-            'article':article1
-        },
-    }
+    # get the ratio between the union and the intersection of the sets
+    matching_tags = set1.intersection(set2)
+    nr_matching_tags = len(matching_tags)
+    union = set1.union(set2)
+    score = nr_matching_tags/len(union)
+
+    return score, matching_tags
+
+def compare_articles(articles:DataFrame, date:str):
+    sore_map_dict = {}
+    articles_today = articles[articles['publication_date'] == date]
+
+    # go over all articles in today
+    info(f'Comparing {len(articles_today)} articles from {date}')
+    for _,article in tqdm(articles_today.iterrows(), total=len(articles_today)):
+        main_art = {}
+        # map score to uid
+        for _, article2 in articles.iterrows():
+            score, matching_tags = tag_matching(article, article2)
+            if score > THREASHHOLD:
+                main_art[article2['uid']] = score
+
+        sore_map_dict[article['uid']] = main_art
+    
+    return sore_map_dict
+
+def compress_comparison(data: dict):
+    # Create a new dictionary to store the final assignments
+    final_dict = {}
+    
+    # Create an intermediate dictionary to store the highest scores and corresponding main_uids for each sub_uid
+    highest_scores = {}
+    
+    # Iterate over main_uids and their corresponding dictionaries
+    info(f'Compressing {len(data)} articles')
+    for main_uid, sub_dict in tqdm(data.items(), total=len(data)):
+        # Iterate over sub_uids and their scores
+        for sub_uid, score in sub_dict.items():
+            # If this sub_uid has not been seen before, or if this score is higher than the previous highest score
+            if sub_uid not in highest_scores or score > highest_scores[sub_uid][0]:
+                # Store this score and main_uid as the highest for this sub_uid
+                highest_scores[sub_uid] = (score, main_uid)
+    
+    # Now that we know the main_uid with the highest score for each sub_uid, we can create the final dictionary
+    for sub_uid, (score, main_uid) in tqdm(highest_scores.items(), total=len(highest_scores)):
+        # If this main_uid is not yet in the final dictionary, add it with an empty dictionary
+        if main_uid not in final_dict:
+            final_dict[main_uid] = {}
+        # Add this sub_uid and score to the dictionary for this main_uid
+        final_dict[main_uid][sub_uid] = score
+    
+    # Return the final dictionary
+    return final_dict
+
+def cleanup_comparison(comp: dict):
+    # remove all sub_uids that are the same as the main_uid
+    for main_uid, sub_dict in comp.items():
+        for sub_uid in list(sub_dict.keys()):
+            if sub_uid == main_uid:
+                del sub_dict[sub_uid]
+    copy_comp = comp.copy()
+    # remove all empty sub_uid dictionaries
+    for main_uid, sub_dict in copy_comp.items():
+        if len(sub_dict) == 0:
+            del comp[main_uid]
+    return comp
+
+
 
 def cross_compare(today_path: str, db: DBManager, summarizer: SummarizManager):
-    today = datetime.today()#-timedelta(days=1)
-    date_today = (today).strftime("%Y-%m-%d")
+    # read articles from today 
+    today = (datetime.today())
     date_14days = (today-timedelta(days=14)).strftime("%Y-%m-%d")
+    date_today = (today).strftime("%Y-%m-%d")
 
-    tables = db.TABLES
+    articles = db.get_by_publish_date(None, date_14days)
+    articles['tags'] = articles['tags'].apply(lambda x: x.lower().split(';'))
 
-    compare_data = []
-    for table in tables:
-        today = db.get_by_publish_date(table, date_today)
-        days14 = db.get_by_publish_date(table, date_14days)
-        only_14days = days14[~days14['url'].isin(today['url'])]
-        compare_data.append({
-            'name': table,
-            'today': today,
-            '14days': days14
-        })
+    comparison = compare_articles(articles, date_today)
+    comparison = compress_comparison(comparison)
+    comparison = cleanup_comparison(comparison)
 
-    # compare all articles with all articles
-    # save matches in a list
-    # check if an article is already in the list
+    # create the match json
     matches = []
-    for table1 in compare_data:
-        print(f'{yellow}{table1["name"]}{reset}')
-        for _, article1_df in tqdm(table1['today'].iterrows(), total=len(table1['today'])):
-            article1 = article1_df.to_dict()
-            for table2 in compare_data:
-                for _, article2_df in table2['14days'].iterrows():
-                    article2 = article2_df.to_dict()
-                    if article1['url'] == article2['url']:
-                        continue
-                    # check if both articles are already in the list
-                    skip = False
-                    already_match = None
-                    for i, match in enumerate(matches):
-                        if (article1['url'] in match['urls']) and (article2['url'] in match['urls']):
-                            skip = True
-                            break
-                        elif (article1['url'] in match['urls']) or (article2['url'] in match['urls']):
-                            already_match = i
-                            break
-                    # skip if both articles are already in the list
-                    if skip:
-                        continue
-
-                    if already_match is not None:
-                        if article1['url'] not in matches[already_match]['urls']:
-                            res = compare_with_match(matches[already_match], article1, table2['name'], summarizer)
-                        else:
-                            res = compare_with_match(matches[already_match], article2, table1['name'], summarizer)
-
-                        if res is not None:
-                            matches[already_match] = res
-                    else:
-                        res = compare(article1, article2, table1['name'], table2['name'], summarizer)
-                        if res is not None:
-                            matches.append(res)
-
-    # remove matches with less than 2 articles
-    matches = [match for match in matches if len(match['articles']) > 1]
-    info(f'{yellow}Found {len(matches)} matches{reset}')
-    for match in tqdm(matches):
-        main_article = match['main_article']['article']
-        future_to_comparison = {}
-        # create thread pool for comparison
-        with ThreadPoolExecutor() as executor:
-            # compare with other articles
-            for article in match['articles']:
-                future = executor.submit(gpt_compare, main_article, article['article'], summarizer)
-            
-                future_to_comparison[future] = (match['uid'], article)
+    for main_uid, sub_dict in comparison.items():
+        main_article = articles[articles['uid'] == main_uid].to_dict('records')[0]
         
-        for future in as_completed(future_to_comparison):
-            uid, article = future_to_comparison[future]
-            if uid != match['uid']:
-                raise Exception('UIDs do not match')
-            res = future.result()
-            if res == None:
-                warn(f'{red}Could not compare {article["article"]["url"]}{reset}')
-            elif not res:
-                match['articles'].remove(article)
-                match['urls'].remove(article['article']['url'])
-                
-    for match in matches:
-        # create folder for match
-        if not os.path.exists(f"{today_path}{match['uid']}"):
-            os.makedirs(f"{today_path}{match['uid']}")
-        with open(f"{today_path}{match['uid']}/match.json", 'w') as f:
-            json.dump(match, f, indent=4)
+        match = {
+            'title': None,
+            'date': today.strftime("%Y-%m-%d"),
+            'summary': None,
+            'urls': [main_article['url']],
+            'images': get_images(main_article['text']),
+            'uid': uuid4().hex,
+            'articles': [main_article['uid']],
+            'tags': set(main_article['tags']),
+            'script': None,
+            'input': None,
+        }
+
+        for sub_uid, score in sub_dict.items():
+            sub_article = articles[articles['uid'] == sub_uid].to_dict('records')[0]
+
+            """ if score < THREASHHOLD*1.5:
+                if not gpt_compare(main_article, sub_article, summarizer):
+                    continue """
+
+            match['urls'].append(sub_article['url'])
+            match['articles'].append(sub_article['uid'])
+            match['images'].extend(get_images(sub_article['text']))
+            match['tags'] = set(match['tags']).union(set(sub_article['tags']))
+
+        match['tags'] = list(match['tags'])
+
+        if match['images'] == []:
+            continue
+
+        matches.append(match)
+
+        # create match folder
+        match_folder = f'{today_path}/{match["uid"]}'
+        os.mkdir(match_folder)
+
+        # make match sql ready
+        match['tags'] = ';'.join(match['tags'])
+        match['articles'] = ';'.join(match['articles'])
+        match['urls'] = ';'.join(match['urls'])
+        for i,image in enumerate(match['images']):
+            match['images'][i] = image['url']
+        match['images'] = ';'.join(match['images'])
+
+        db.insert(match, 'matches')
+        print(f'{green}Match {match["uid"]} created{reset}')
 
     return matches
 
-
+# @GPT: This script initiates the DBManager with a predefined DB_NAME, initializes a SummarizManager,
+#  then uses the function 'cross_compare' to compare the two. It prints the number of matches found.
+#  It is executed if this script is the main entry point (not imported as a module).;
 if __name__ == "__main__":
     db = DBManager(DB_NAME)
     summarizer = SummarizManager()

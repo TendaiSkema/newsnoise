@@ -136,7 +136,7 @@ def scrape_taggi(db):
                 if not url.split('-')[-1].isnumeric():
                     continue
                 # check if article is already in database
-                if db.check_if_exists(url, 'Tagesanzeiger'):
+                if db.check_if_article_exists(url):
                     continue
 
                 md = scrape_article(url, category)
