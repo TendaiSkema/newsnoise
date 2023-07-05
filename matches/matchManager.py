@@ -162,13 +162,10 @@ def cross_compare(today_path: str, db: DBManager, summarizer: SummarizManager):
         match['tags'] = list(match['tags'])
 
         if match['images'] == []:
+            print(f'{red}Match {match["uid"]} has no images{reset}')
             continue
 
         matches.append(match)
-
-        # create match folder
-        match_folder = f'{today_path}/{match["uid"]}'
-        os.mkdir(match_folder)
 
         # make match sql ready
         match['tags'] = ';'.join(match['tags'])

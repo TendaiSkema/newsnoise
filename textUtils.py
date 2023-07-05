@@ -126,10 +126,10 @@ class UploadManager:
             )
             response = insert_request.execute()
             print(f"Video uploaded successfully. Video ID: {response['id']}")
+
+            return response['id']
         else:
             print(f"Video file not found: {video_path}")
-
-        return response['id']
 
     def set_thumbnail(self, video_id, thumbnail_path):
         try:

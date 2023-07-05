@@ -76,12 +76,15 @@ class DBManager:
 
     @__checkIfConnected
     def insert_many(self, articles_json:list, table_name:str):
+        inserted = 0
         for article_json in articles_json:
             if self.insert(article_json, table_name):
                 print(f'{green}Inserted{reset} {article_json["url"]}')
+                inserted += 1
             else:
                 print(f'{yellow}Rejected{reset} {article_json["url"]}')
                 pass
+        return inserted
             
     @__checkIfConnected
     def get_by_uid(self, table_name:str, uid:str) -> dict:
@@ -156,6 +159,11 @@ class DBManager:
         uid = article_json['uid']
         set_str = ','.join([str(x)+'=?' for x in self.FIELDS_NAMES[table]])
         self.c.execute(f'UPDATE {table} SET {set_str} WHERE uid=?', tuple([article_json[field] for field in self.FIELDS_NAMES[table]]+[uid]))
+        self.conn.commit()
+
+    @__checkIfConnected
+    def delete_by_WHERE(self, table:str, WHERE:str):
+        self.c.execute(f'DELETE FROM {table} WHERE {WHERE}')
         self.conn.commit()
 
     def update_by_fieldname(self, newspaper_name:str, article_json:dict, fieldname:str):

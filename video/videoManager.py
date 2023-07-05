@@ -56,7 +56,6 @@ def calc_weight(text, nr_articles_in_match=1):
     return weight
 
 def create_input(match, summarizer):
-    #print(f"{green}{match['title']}{reset}")
     request_str = ""
     for article_json in match['articles']:
         article = article_json
@@ -295,7 +294,7 @@ def create_thumbnail(images, tags, today_path):
 
     return img
 
-def create_final_thumbnail(matches, today_date, today_path, title):
+def create_final_thumbnail(images, today_date, today_path, title):
     base_image = Image.open('matches/thumbnail.png')
     base_image = base_image.convert('RGBA')
 
@@ -303,26 +302,26 @@ def create_final_thumbnail(matches, today_date, today_path, title):
     bbox = (50, 100, 1000, 650)
 
     # load all matches from today and get all image links
-    images = []
-    for match in matches:
-        images += match['images']
-
     if images == []:
         raise Exception('No images found!!')
     # get random image
     random_front = random.choice(images)
-    response = None
+    found = False
     # download image
     for _ in range(len(images)):
         try:
             response = requests.get(random_front)
+            found = True
         except:
             random_front = random.choice(images)
 
-    if response == None:
+    if not found:
         # save base image as thumbnail
         base_image.save(today_path+'final_thumbnail.png')
+        info('No image found!!')
         return base_image
+
+    info('Found image!! ' + random_front)
 
     temp_image_id = random.randint(0, 100000)
     with open(f'temp/temp_image{temp_image_id}.jpg', 'wb') as temp_file:
